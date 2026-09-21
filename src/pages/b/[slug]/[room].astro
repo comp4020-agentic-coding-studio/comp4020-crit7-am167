@@ -1,0 +1,258 @@
+---
+import DateStrip from "../../../components/DateStrip.astro";
+import DayGrid from "../../../components/DayGrid.astro";
+import Shell from "../../../components/Shell.astro";
+import { currentUser } from "../../../lib/auth";
+import { bookingsOn, buildingBySlug, errorMessage, roomsInBuilding } from "../../../lib/booking";
+import { labelFor, type RoomKind } from "../../../lib/floorplan";
+import { buildingUrl, roomSlug, roomUrl } from "../../../lib/links";
+import {
+  MAX_SLOTS_PER_BOOKING,
+  SLOTS,
+  currentSlot,
+  dateLabel,
+  isBookableDate,
+  slotRangeLabel,
+  slotTime,
+  today,
+} from "../../../lib/slots";
+
+const { slug, room: roomParam } = Astro.params;
+const building = slug ? buildingBySlug(slug) : undefined;
+const room = building
+  ? roomsInBuilding(building.id).find((r) => roomSlug(r.code) === roomParam)
+  : undefined;
+
+if (!building || !room) {
+  return new Response("No such room", { status: 404 });
+}
+
+const user = currentUser(Astro.cookies);
+const params = Astro.url.searchParams;
+const requested = params.get("date") ?? today();
+const date = isBookableDate(requested) ? requested : today();
+const bookings = bookingsOn([room.id], date);
+const pastBefore = date === today() ? currentSlot() : -1;
+
+const features = JSON.parse(room.features) as string[];
+
+// the slot the grid handed us, if any, and a sensible hour-long default
+const firstFree = Array.from({ length: SLOTS }, (_, i) => i).find(
+  (s) => s >= Math.max(0, pastBefore) && !bookings.some((b) => b.startSlot <= s && b.endSlot > s),
+);
+const requestedStart = Number(params.get("start"));
+const start = Number.isInteger(requestedStart)
+  ? Math.min(Math.max(requestedStart, 0), SLOTS - 1)
+  : (firstFree ?? 0);
+const end = Math.min(start + 2, SLOTS);
+
+const error = errorMessage(params.get("error"));
+const justBooked = bookings.find((b) => String(b.id) === params.get("booked"));
+
+const startOptions = Array.from({ length: SLOTS }, (_, i) => i).filter((s) => s >= pastBefore);
+const endOptions = Array.from({ length: SLOTS }, (_, i) => i + 1).filter(
+  (e) => e > start && e - start <= MAX_SLOTS_PER_BOOKING,
+);
+
+const freeSlots =
+  SLOTS - bookings.reduce((total, b) => total + (b.endSlot - b.startSlot), 0);
+---
+
+<Shell
+  title={`${room.code} · ${building.name} · Book ANU Acton`}
+  current="map"
+  user={user ?? undefined}
+>
+  <div class="page-head">
+    <div>
+      <ol class="crumbs">
+        <li><a href="/">Campus</a></li>
+        <li><a href={buildingUrl(building.slug, { date, floor: room.floor })}>{building.name}</a></li>
+        <li aria-current="page">{room.code}</li>
+      </ol>
+      <h1 class="code">{room.code}</h1>
+      <p class="lede">
+        {labelFor(room.kind as RoomKind)} on level {room.floor} of {building.name} · seats{" "}
+        {room.capacity}
+      </p>
+      {
+        features.length > 0 && (
+          <ul class="tags">
+            {features.map((feature) => (
+              <li class="pill">{feature}</li>
+            ))}
+          </ul>
+        )
+      }
+    </div>
+    <DateStrip date={date} action={roomUrl(building.slug, room.code)} keep={{ start }} />
+  </div>
+
+  {error && <p class="notice notice-error">{error}</p>}
+  {
+    justBooked && (
+      <p class="notice notice-ok">
+        Booked — {room.code} is yours {dateLabel(date)},{" "}
+        {slotRangeLabel(justBooked.startSlot, justBooked.endSlot)}.{" "}
+        <a href="/bookings/">All your bookings</a>.
+      </p>
+    )
+  }
+
+  <div class="stack">
+    <section class="panel panel-pad stack-sm">
+      <div class="section-head">
+        <h2>{dateLabel(date)} · {freeSlots} of {SLOTS} half hours free</h2>
+        <ul class="legend">
+          <li><span class="swatch swatch-free"></span> Free</li>
+          <li><span class="swatch swatch-busy"></span> Taken</li>
+          <li><span class="swatch swatch-mine"></span> Yours</li>
+          {pastBefore > 0 && (
+            <li>
+              <span class="swatch swatch-past" /> Already been
+            </li>
+          )}
+        </ul>
+      </div>
+      <DayGrid
+        rooms={[room]}
+        buildingSlug={building.slug}
+        date={date}
+        bookings={bookings}
+        pastBefore={pastBefore}
+        userId={user?.id}
+        caption="Pick a free half hour, or set the times below."
+      />
+    </section>
+
+    <section class="panel panel-pad stack-sm" id="book">
+      <h2>Book {room.code}</h2>
+      {
+        user ? (
+          <form method="post" action="/api/bookings" class="stack-sm">
+            <input type="hidden" name="roomId" value={room.id} />
+            <input type="hidden" name="date" value={date} />
+            <div class="field-row">
+              <div class="field">
+                <label for="startSlot">From</label>
+                <select id="startSlot" name="startSlot">
+                  {startOptions.map((s) => (
+                    <option value={s} selected={s === start}>
+                      {slotTime(s)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div class="field">
+                <label for="endSlot">Until</label>
+                <select id="endSlot" name="endSlot">
+                  {endOptions.map((e) => (
+                    <option value={e} selected={e === end}>
+                      {slotTime(e)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div class="field field-grow">
+                <label for="purpose">What for</label>
+                <input
+                  id="purpose"
+                  name="purpose"
+                  maxlength="120"
+                  placeholder="Group project meeting"
+                  required
+                />
+              </div>
+              <div class="field" style="flex:0 0 auto">
+                <button class="btn btn-primary" type="submit">Book it</button>
+              </div>
+            </div>
+            <p class="muted" style="margin:0;font-size:0.8rem">
+              Up to {MAX_SLOTS_PER_BOOKING / 2} hours at a time. Everyone can see what a room is
+              booked for.
+            </p>
+          </form>
+        ) : (
+          <div class="empty">
+            <p>Sign in to book this room. Any uni ID works.</p>
+            <a
+              class="btn btn-primary"
+              href={`/login/?next=${encodeURIComponent(roomUrl(building.slug, room.code, { date, start }))}`}
+            >
+              Sign in
+            </a>
+          </div>
+        )
+      }
+    </section>
+
+    <section class="stack-sm">
+      <h2>Who has it, {dateLabel(date)}</h2>
+      {
+        bookings.length === 0 ? (
+          <div class="empty">
+            <p>Nobody. The whole day is free.</p>
+          </div>
+        ) : (
+          <ul class="rows">
+            {bookings.map((booking) => (
+              <li class={`row${user && booking.userId === user.id ? "" : " row-past"}`}>
+                <span class="when">{slotRangeLabel(booking.startSlot, booking.endSlot)}</span>
+                <span class="what">
+                  <b>{booking.purpose}</b>
+                  <span>
+                    {user && booking.userId === user.id ? "You" : booking.bookedBy} ·{" "}
+                    <span class="code">{booking.bookedByUniId}</span>
+                  </span>
+                </span>
+                {user && booking.userId === user.id && (
+                  <form method="post" action="/api/bookings/cancel">
+                    <input type="hidden" name="bookingId" value={booking.id} />
+                    <input
+                      type="hidden"
+                      name="next"
+                      value={roomUrl(building.slug, room.code, { date })}
+                    />
+                    <button class="btn btn-quiet btn-danger btn-sm" type="submit">
+                      Cancel
+                      <span class="visually-hidden">
+                        {booking.purpose} at {slotRangeLabel(booking.startSlot, booking.endSlot)}
+                      </span>
+                    </button>
+                  </form>
+                )}
+              </li>
+            ))}
+          </ul>
+        )
+      }
+    </section>
+  </div>
+</Shell>
+
+<script>
+  // Keep "until" ahead of "from" as you change the start time, rather than
+  // letting the server reject an impossible pair after a round trip.
+  const from = document.querySelector<HTMLSelectElement>("#startSlot");
+  const until = document.querySelector<HTMLSelectElement>("#endSlot");
+  const MAX = 6;
+
+  function sync(): void {
+    if (!from || !until) return;
+    const start = Number(from.value);
+    const previous = Number(until.value);
+    until.textContent = "";
+    for (let end = start + 1; end <= start + MAX && end <= 24; end++) {
+      const option = document.createElement("option");
+      option.value = String(end);
+      const minutes = 8 * 60 + end * 30;
+      option.textContent = `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(
+        minutes % 60,
+      ).padStart(2, "0")}`;
+      option.selected = end === previous || (previous <= start && end === start + 2);
+      until.append(option);
+    }
+  }
+
+  from?.addEventListener("change", sync);
+</script>

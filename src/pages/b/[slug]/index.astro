@@ -1,0 +1,137 @@
+---
+import CampusScene from "../../../components/CampusScene.astro";
+import DateStrip from "../../../components/DateStrip.astro";
+import DayGrid from "../../../components/DayGrid.astro";
+import FloorPlan from "../../../components/FloorPlan.astro";
+import Shell from "../../../components/Shell.astro";
+import { currentUser } from "../../../lib/auth";
+import { bookingsOn, buildingBySlug, errorMessage, roomsInBuilding } from "../../../lib/booking";
+import { buildingUrl } from "../../../lib/links";
+import { SLOTS, currentSlot, dateLabel, isBookableDate, today } from "../../../lib/slots";
+
+const { slug } = Astro.params;
+const building = slug ? buildingBySlug(slug) : undefined;
+if (!building) return new Response("No such building", { status: 404 });
+
+const user = currentUser(Astro.cookies);
+const params = Astro.url.searchParams;
+const requested = params.get("date") ?? today();
+const date = isBookableDate(requested) ? requested : today();
+
+const all = roomsInBuilding(building.id);
+const requestedFloor = Number(params.get("floor"));
+const floor =
+  Number.isInteger(requestedFloor) && requestedFloor >= 0 && requestedFloor < building.levels
+    ? requestedFloor
+    : 0;
+const rooms = all.filter((room) => room.floor === floor);
+
+const bookings = bookingsOn(
+  all.map((room) => room.id),
+  date,
+);
+const onThisFloor = bookings.filter((booking) => rooms.some((room) => room.id === booking.roomId));
+const pastBefore = date === today() ? currentSlot() : -1;
+
+/** free half hours per floor, for the switcher */
+const floors = Array.from({ length: building.levels }, (_, level) => {
+  const ids = new Set(all.filter((room) => room.floor === level).map((room) => room.id));
+  const capacity = ids.size * SLOTS;
+  const used = bookings
+    .filter((booking) => ids.has(booking.roomId))
+    .reduce((total, booking) => total + (booking.endSlot - booking.startSlot), 0);
+  return { level, rooms: ids.size, free: capacity - used, capacity };
+});
+
+const here = floors[floor];
+const error = errorMessage(params.get("error"));
+---
+
+<Shell title={`${building.name} · Book ANU Acton`} current="map" user={user ?? undefined}>
+  <div class="page-head">
+    <div>
+      <ol class="crumbs">
+        <li><a href="/">Campus</a></li>
+        <li aria-current="page">{building.name}</li>
+      </ol>
+      <h1>{building.name}</h1>
+      <p class="lede">
+        <span class="code">{building.code}</span> · {building.levels}{" "}
+        {building.levels === 1 ? "level" : "levels"} · {all.length} bookable rooms ·{" "}
+        {here ? Math.round((here.free / Math.max(1, here.capacity)) * 100) : 0}% of level {floor} free
+        on {dateLabel(date)}
+      </p>
+    </div>
+    <DateStrip date={date} action={buildingUrl(building.slug)} keep={{ floor }} />
+  </div>
+
+  {error && <p class="notice notice-error">{error}</p>}
+
+  <div class="stack">
+    <CampusScene focus={building.slug} floor={floor} date={date} />
+
+    <section class="stack-sm">
+      <div class="section-head">
+        <h2>Levels</h2>
+        <ul class="legend">
+          <li><span class="swatch swatch-free"></span> Free</li>
+          <li><span class="swatch swatch-busy"></span> Taken</li>
+          <li><span class="swatch swatch-mine"></span> Yours</li>
+        </ul>
+      </div>
+      <ul class="floors">
+        {
+          floors.map((entry) => (
+            <li>
+              <a
+                href={buildingUrl(building.slug, { date, floor: entry.level })}
+                aria-current={entry.level === floor ? "page" : undefined}
+                data-floor={entry.level}
+              >
+                <b>L{entry.level}</b>
+                <small>
+                  {entry.rooms} rooms
+                  <span class="visually-hidden">
+                    , {Math.round((entry.free / Math.max(1, entry.capacity)) * 100)}% free
+                  </span>
+                </small>
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </section>
+
+    <section class="panel panel-pad stack-sm">
+      <h2>Level {floor} plan</h2>
+      <FloorPlan
+        building={building}
+        rooms={rooms}
+        bookings={onThisFloor}
+        date={date}
+        userId={user?.id}
+      />
+    </section>
+
+    <section class="stack-sm">
+      <h2>Level {floor} · {dateLabel(date)}</h2>
+      {
+        rooms.length === 0 ? (
+          <div class="empty">
+            <p>No bookable rooms on this level.</p>
+          </div>
+        ) : (
+          <DayGrid
+            rooms={rooms}
+            buildingSlug={building.slug}
+            date={date}
+            bookings={onThisFloor}
+            pastBefore={pastBefore}
+            userId={user?.id}
+            caption="Every half hour on this level. Pick a free one."
+          />
+        )
+      }
+    </section>
+  </div>
+</Shell>

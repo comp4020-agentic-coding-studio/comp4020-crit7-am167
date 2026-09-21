@@ -1,0 +1,92 @@
+---
+import Shell from "../components/Shell.astro";
+import { currentUser } from "../lib/auth";
+import { DEMO_PASSWORD, DEMO_USERS } from "../lib/seed";
+
+// Signed-out pages still return 200 rather than redirecting: the spec's
+// invariants fetch every route without a session and require a page.
+
+const user = currentUser(Astro.cookies);
+const next = Astro.url.searchParams.get("next") ?? "/";
+const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : "/";
+
+const ERRORS: Record<string, string> = {
+  "bad-id": "A uni ID looks like u1234567 — a 'u' and seven digits.",
+  "bad-password": "That password doesn't match this uni ID. New IDs pick their own on first use.",
+};
+const error = ERRORS[Astro.url.searchParams.get("error") ?? ""];
+---
+
+<Shell title="Sign in · Book ANU Acton" user={user ?? undefined} next={safeNext}>
+  <div class="prose stack">
+    <div>
+      <h1>Sign in</h1>
+      <p class="lede">
+        Bookings belong to someone, so the app needs to know who you are. It doesn't check with the
+        University — <strong>any</strong> well-formed uni ID works, and the first time one is used it
+        keeps whatever password you type.
+      </p>
+    </div>
+
+    {error && <p class="notice notice-error">{error}</p>}
+
+    {
+      user ? (
+        <p class="notice notice-ok">
+          You're already signed in as {user.uniId}. <a href="/bookings/">See your bookings</a>.
+        </p>
+      ) : (
+        <form method="post" action="/api/session" class="panel panel-pad stack-sm">
+          <input type="hidden" name="next" value={safeNext} />
+          <div>
+            <label for="uniId">Uni ID</label>
+            <input
+              id="uniId"
+              name="uniId"
+              required
+              placeholder="u1234567"
+              pattern="[uU][0-9]{7}"
+              autocomplete="username"
+              spellcheck="false"
+            />
+          </div>
+          <div>
+            <label for="password">Password</label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              required
+              minlength="4"
+              autocomplete="current-password"
+            />
+          </div>
+          <div>
+            <button class="btn btn-primary" type="submit">Sign in</button>
+          </div>
+        </form>
+      )
+    }
+
+    <section class="panel panel-pad stack-sm">
+      <h2>People already on this campus</h2>
+      <p class="muted" style="margin:0">
+        Their bookings are what fills the map. Password for all of them:
+        <code class="code">{DEMO_PASSWORD}</code>
+      </p>
+      <ul class="cards">
+        {
+          DEMO_USERS.map((person) => (
+            <li class="card">
+              <div class="card-title">
+                <span class="code">{person.uniId}</span>
+                <span class="pill">{person.role}</span>
+              </div>
+              <p class="card-meta">{person.displayName}</p>
+            </li>
+          ))
+        }
+      </ul>
+    </section>
+  </div>
+</Shell>

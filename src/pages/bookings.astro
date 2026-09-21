@@ -1,0 +1,114 @@
+---
+import Shell from "../components/Shell.astro";
+import { currentUser, nameOf } from "../lib/auth";
+import { bookingsForUser, errorMessage } from "../lib/booking";
+import { buildingUrl } from "../lib/links";
+import { dateLabel, slotRangeLabel } from "../lib/slots";
+
+const user = currentUser(Astro.cookies);
+const { upcoming, past } = user ? bookingsForUser(user.id) : { upcoming: [], past: [] };
+const error =
+  errorMessage(Astro.url.searchParams.get("error")) ??
+  (Astro.url.searchParams.get("error") === "not-yours"
+    ? "That booking isn't yours to cancel."
+    : undefined);
+---
+
+<Shell title="My bookings · Book ANU Acton" current="bookings" user={user ?? undefined}>
+  <div class="page-head">
+    <div>
+      <h1>My bookings</h1>
+      <p class="lede">
+        {
+          user
+            ? `Everything ${nameOf(user)} is holding, and everything already used.`
+            : "Rooms you've booked show up here."
+        }
+      </p>
+    </div>
+    <a class="btn" href="/">Find a room</a>
+  </div>
+
+  {error && <p class="notice notice-error">{error}</p>}
+
+  {
+    !user && (
+      <div class="empty">
+        <p>You're not signed in, so there's nothing to show yet.</p>
+        <a class="btn btn-primary" href="/login/?next=%2Fbookings%2F">
+          Sign in
+        </a>
+      </div>
+    )
+  }
+
+  {
+    user && (
+      <div class="stack">
+        <section class="stack-sm">
+          <h2>Coming up ({upcoming.length})</h2>
+          {upcoming.length === 0 ? (
+            <div class="empty">
+              <p>Nothing booked. The campus map knows what's free.</p>
+              <a class="btn btn-primary" href="/">
+                Find a room
+              </a>
+            </div>
+          ) : (
+            <ul class="rows">
+              {upcoming.map((booking) => (
+                <li class="row">
+                  <span class="when">
+                    {dateLabel(booking.date)}
+                    <br />
+                    {slotRangeLabel(booking.startSlot, booking.endSlot)}
+                  </span>
+                  <span class="what">
+                    <b>{booking.purpose}</b>
+                    <span>
+                      <a href={buildingUrl(booking.buildingSlug)}>{booking.buildingName}</a> ·{" "}
+                      <span class="code">{booking.roomCode}</span>
+                    </span>
+                  </span>
+                  <form method="post" action="/api/bookings/cancel">
+                    <input type="hidden" name="bookingId" value={booking.id} />
+                    <input type="hidden" name="next" value="/bookings/" />
+                    <button class="btn btn-quiet btn-danger btn-sm" type="submit">
+                      Cancel
+                      <span class="visually-hidden">
+                        {booking.purpose} in {booking.roomCode} on {dateLabel(booking.date)}
+                      </span>
+                    </button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {past.length > 0 && (
+          <section class="stack-sm">
+            <h2>Already been ({past.length})</h2>
+            <ul class="rows">
+              {past.slice(0, 20).map((booking) => (
+                <li class="row row-past">
+                  <span class="when">
+                    {dateLabel(booking.date)}
+                    <br />
+                    {slotRangeLabel(booking.startSlot, booking.endSlot)}
+                  </span>
+                  <span class="what">
+                    <b>{booking.purpose}</b>
+                    <span>
+                      {booking.buildingName} · <span class="code">{booking.roomCode}</span>
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </div>
+    )
+  }
+</Shell>

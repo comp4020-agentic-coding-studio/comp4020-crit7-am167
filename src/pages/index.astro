@@ -1,53 +1,160 @@
 ---
-import { listMessages } from "../lib/db";
-import "../styles.css";
+import CampusScene from "../components/CampusScene.astro";
+import DateStrip from "../components/DateStrip.astro";
+import Shell from "../components/Shell.astro";
+import { currentUser } from "../lib/auth";
+import { campusOverview, errorMessage } from "../lib/booking";
+import { buildingUrl, withQuery } from "../lib/links";
+import { SLOTS, dateLabel, isBookableDate, slotTime, today } from "../lib/slots";
 
-const messages = listMessages();
+const user = currentUser(Astro.cookies);
+const params = Astro.url.searchParams;
+const requested = params.get("date") ?? today();
+const date = isBookableDate(requested) ? requested : today();
+
+const CAPACITIES = [0, 4, 8, 20, 50];
+const FEATURES = ["whiteboard", "projector", "videoconf", "quiet", "accessible"];
+
+const capacity = CAPACITIES.includes(Number(params.get("cap"))) ? Number(params.get("cap")) : 0;
+const feature = FEATURES.includes(params.get("feature") ?? "") ? params.get("feature") : null;
+
+const overview = campusOverview(
+  date,
+  { minCapacity: capacity || undefined, feature: feature ?? undefined },
+  user?.id,
+);
+const matching = overview.filter((entry) => entry.matching > 0);
+const totalRooms = matching.reduce((n, entry) => n + entry.matching, 0);
+
+const filtered = capacity > 0 || feature !== null;
+const keep = { ...(capacity ? { cap: capacity } : {}), ...(feature ? { feature } : {}) };
+
+// what the 3D scene colours each building by
+const sceneData = overview.map((entry) => ({
+  slug: entry.building.slug,
+  free: entry.total === 0 ? 0 : entry.free / entry.total,
+  matching: entry.matching,
+  yours: entry.yours,
+}));
+
+const error = errorMessage(params.get("error"));
 ---
 
-<!doctype html>
-<html lang="en-AU">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>COMP4020 prototype</title>
-  </head>
-  <body>
-    <nav aria-label="site">
-      <a href="/">Guestbook</a>
-      <a href="/readme/">About</a>
-    </nav>
-    <main>
-      <h1>Guestbook</h1>
-      <p>
-        A minimal full-stack starter: messages live in SQLite on the machine's
-        volume (state survives a reload and a redeploy), and new messages
-        appear in every open tab over a server-sent-events stream — open this
-        page twice and sign it in one. Replace all of this with your own
-        prototype.
+<Shell title="Book a room · ANU Acton" current="map" user={user ?? undefined}>
+  <div class="page-head">
+    <div>
+      <h1>Find a room at ANU Acton</h1>
+      <p class="lede">
+        Every bookable room on campus, on one map. Pick a building to drop into its floors — or
+        scroll past the map, where the same thing is a list.
       </p>
-      <form method="post" action="/api/messages">
-        <label for="body">Leave a message</label>
-        <input id="body" name="body" required maxlength="500" />
-        <button>Sign</button>
-      </form>
-      <ul id="messages">
-        {messages.map((message) => <li>{message.body}</li>)}
-      </ul>
-    </main>
-    <script>
-      // The live half of the demo: subscribe to the SSE stream and prepend
-      // messages as they arrive. The form itself needs none of this — its
-      // POST + redirect re-renders the submitting tab from SQLite; this
-      // stream is how every other tab finds out.
-      const list = document.querySelector("#messages");
-      const source = new EventSource("/api/events");
-      source.addEventListener("message", (event) => {
-        const message = JSON.parse(event.data);
-        const item = document.createElement("li");
-        item.textContent = message.body;
-        list?.prepend(item);
-      });
-    </script>
-  </body>
-</html>
+    </div>
+    <DateStrip date={date} action="/" keep={keep} />
+  </div>
+
+  {error && <p class="notice notice-error">{error}</p>}
+
+  <div class="stack">
+    <CampusScene date={date} buildings={sceneData} />
+
+    <form class="panel panel-pad filters" method="get" action="/">
+      <input type="hidden" name="date" value={date} />
+      <div class="field">
+        <label for="cap">Seats</label>
+        <select id="cap" name="cap">
+          {
+            CAPACITIES.map((n) => (
+              <option value={n} selected={n === capacity}>
+                {n === 0 ? "Any size" : `${n} or more`}
+              </option>
+            ))
+          }
+        </select>
+      </div>
+      <div class="field">
+        <label for="feature">Needs</label>
+        <select id="feature" name="feature">
+          <option value="" selected={feature === null}>Anything</option>
+          {
+            FEATURES.map((name) => (
+              <option value={name} selected={name === feature}>
+                {name}
+              </option>
+            ))
+          }
+        </select>
+      </div>
+      <div class="field filters-actions">
+        <button class="btn" type="submit">Apply</button>
+        {filtered && <a class="btn btn-quiet" href={withQuery("/", { date })}>Clear</a>}
+      </div>
+      <p class="filters-count muted">
+        {totalRooms} room{totalRooms === 1 ? "" : "s"} across {matching.length} building{
+          matching.length === 1 ? "" : "s"
+        }
+      </p>
+    </form>
+
+    <section class="stack-sm">
+      <div class="section-head">
+        <h2>Buildings · {dateLabel(date)}</h2>
+        <ul class="legend">
+          <li><span class="swatch swatch-free"></span> Rooms free</li>
+          <li><span class="swatch swatch-busy"></span> Fully booked</li>
+          <li><span class="swatch swatch-mine"></span> You have a room here</li>
+        </ul>
+      </div>
+
+      {
+        matching.length === 0 ? (
+          <div class="empty">
+            <p>No room on campus matches that. Try fewer seats, or drop the requirement.</p>
+            <a class="btn btn-primary" href={withQuery("/", { date })}>
+              Clear the filter
+            </a>
+          </div>
+        ) : (
+          <ul class="cards">
+            {matching.map((entry) => {
+              const pct = entry.total === 0 ? 0 : Math.round((entry.free / entry.total) * 100);
+              return (
+                <li>
+                  <a
+                    class="card"
+                    href={buildingUrl(entry.building.slug, { date })}
+                    data-building={entry.building.slug}
+                    style={`--free-pct:${pct}%`}
+                  >
+                    <div class="card-title">
+                      <span class="code">{entry.building.code}</span>
+                      {entry.yours > 0 ? (
+                        <span class="pill pill-mine">Yours</span>
+                      ) : pct === 0 ? (
+                        <span class="pill pill-full">Full</span>
+                      ) : (
+                        <span class="pill pill-free">{pct}% free</span>
+                      )}
+                    </div>
+                    <p class="card-meta">{entry.building.name}</p>
+                    <p class="card-meta muted">
+                      {entry.matching} room{entry.matching === 1 ? "" : "s"} ·{" "}
+                      {entry.building.levels} levels ·{" "}
+                      {entry.nextFree === undefined
+                        ? "nothing free today"
+                        : `next free ${slotTime(entry.nextFree)}`}
+                    </p>
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        )
+      }
+    </section>
+
+    <p class="muted" style="font-size:0.8rem">
+      A day runs 08:00–20:00 in {SLOTS} half-hour slots. Bookings are live: if someone takes a room while
+      you're looking, the map re-tints without a reload.
+    </p>
+  </div>
+</Shell>

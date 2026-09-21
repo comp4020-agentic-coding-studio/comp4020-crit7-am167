@@ -1,0 +1,80 @@
+---
+import { ClientRouter } from "astro:transitions";
+import { ATTRIBUTION } from "../data/campus";
+import { nameOf } from "../lib/auth";
+import type { User } from "../lib/schema";
+import "../styles.css";
+
+// Every page's frame: head, the one nav landmark the invariants look for,
+// and the footer that carries OpenStreetMap's attribution (the campus
+// footprints are ODbL, so the credit isn't optional).
+//
+// <ClientRouter /> is here for one reason: it lets the WebGL canvas survive
+// a page navigation (see CampusScene.astro), so clicking a building flies
+// the camera in rather than rebooting the whole scene.
+
+interface Props {
+  title: string;
+  /** which nav item is the page you're on */
+  current?: "map" | "bookings" | "about";
+  user?: User;
+  /** where to come back to after signing in */
+  next?: string;
+}
+
+const { title, current, user, next = Astro.url.pathname } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en-AU">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="Find and book a room at ANU Acton — a live campus map, floor by floor."
+    />
+    <title>{title}</title>
+    <ClientRouter />
+  </head>
+  <body>
+    <header class="masthead">
+      <a class="brand" href="/">Book<span>ANU Acton</span></a>
+      <nav aria-label="Main">
+        <a href="/" aria-current={current === "map" ? "page" : undefined}>Campus</a>
+        <a href="/bookings/" aria-current={current === "bookings" ? "page" : undefined}>
+          My bookings
+        </a>
+        <a href="/readme/" aria-current={current === "about" ? "page" : undefined}>About</a>
+      </nav>
+      <span class="spacer"></span>
+      {
+        user ? (
+          <form method="post" action="/api/session" class="whoami">
+            <input type="hidden" name="action" value="sign-out" />
+            <span>
+              <b>{nameOf(user)}</b> <span class="uid">{user.uniId}</span>
+            </span>
+            <button class="btn btn-quiet btn-sm" type="submit">Sign out</button>
+          </form>
+        ) : (
+          <a class="btn btn-sm" href={`/login/?next=${encodeURIComponent(next)}`}>Sign in</a>
+        )
+      }
+    </header>
+
+    <main>
+      <slot />
+    </main>
+
+    <footer class="page-foot">
+      <p>
+        Building footprints {ATTRIBUTION}, licensed{" "}
+        <a href="https://www.openstreetmap.org/copyright" rel="license noreferrer">ODbL</a>. Floor
+        layouts, room numbers and every booking in here are invented — this is a COMP4020 prototype,
+        not an ANU service. <a href="/readme/">What this is</a>.
+      </p>
+    </footer>
+  </body>
+</html>

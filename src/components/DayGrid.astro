@@ -1,0 +1,132 @@
+---
+import type { BookingRow, RoomRow } from "../lib/booking";
+import { roomUrl } from "../lib/links";
+import type { Room } from "../lib/schema";
+import { SLOTS, slotTime } from "../lib/slots";
+
+// Rooms down the side, the day across the top, one cell per half hour. This
+// is the whole point of the dark ground: occupancy becomes a shape you scan
+// in one look rather than a list you read.
+//
+// It's a real <table> with real headers, and every free cell is a LINK, not
+// a scripted button — so the grid works with JavaScript off and a keyboard
+// tabs through it in reading order. Clicking a free slot loads the room page
+// with that time already chosen.
+//
+// Colour never carries the state alone: busy cells are hatched, and every
+// cell says what it is in text only a screen reader hears.
+
+interface Props {
+  rooms: Array<Room | RoomRow>;
+  buildingSlug: string;
+  date: string;
+  /** live bookings on this date, for these rooms */
+  bookings: BookingRow[];
+  /** slots before this one today have been and gone; -1 for a future date */
+  pastBefore: number;
+  /** whose bookings read as "yours" */
+  userId?: number;
+  caption?: string;
+}
+
+const { rooms, buildingSlug, date, bookings, pastBefore, userId, caption } = Astro.props;
+
+const slots = Array.from({ length: SLOTS }, (_, i) => i);
+
+/** roomId → slot → the booking holding it */
+const held = new Map<number, Array<BookingRow | undefined>>();
+for (const room of rooms) held.set(room.id, new Array(SLOTS).fill(undefined));
+for (const booking of bookings) {
+  const row = held.get(booking.roomId);
+  if (!row) continue;
+  for (let s = booking.startSlot; s < booking.endSlot && s < SLOTS; s++) row[s] = booking;
+}
+
+type Cell =
+  | { state: "free"; href: string; label: string }
+  | { state: "busy" | "mine" | "past"; label: string };
+
+function cellFor(room: Room | RoomRow, slot: number): Cell {
+  const booking = held.get(room.id)?.[slot];
+  if (booking) {
+    const mine = userId !== undefined && booking.userId === userId;
+    return {
+      state: mine ? "mine" : "busy",
+      label: mine
+        ? `${slotTime(slot)} yours: ${booking.purpose}`
+        : `${slotTime(slot)} taken: ${booking.purpose}`,
+    };
+  }
+  if (slot < pastBefore) return { state: "past", label: `${slotTime(slot)} gone` };
+  return {
+    state: "free",
+    href: roomUrl(buildingSlug, room.code, { date, start: slot }),
+    label: `Book ${slotTime(slot)}`,
+  };
+}
+
+// hour ticks under the grid: one every two hours
+const ticks = slots.filter((s) => s % 4 === 0);
+---
+
+<div class="grid-scroll">
+  <table class="daygrid" data-daygrid data-date={date}>
+    {caption && <caption>{caption}</caption>}
+    <thead>
+      <tr>
+        <th class="rowhead" scope="col">Room</th>
+        {
+          slots.map((slot) => (
+            <th scope="col">
+              <span class="visually-hidden">{slotTime(slot)}</span>
+            </th>
+          ))
+        }
+      </tr>
+    </thead>
+    <tbody>
+      {
+        rooms.map((room) => (
+          <tr data-room={room.id}>
+            <th class="rowhead" scope="row">
+              <a class="code" href={roomUrl(buildingSlug, room.code, { date })}>
+                {room.code}
+              </a>
+              <span class="muted" style="display:block;font-size:0.72rem">
+                {room.capacity} seats
+              </span>
+            </th>
+            {slots.map((slot) => {
+              const cell = cellFor(room, slot);
+              return (
+                <td>
+                  {cell.state === "free" ? (
+                    <a class="slot" data-state="free" data-slot={slot} href={cell.href}>
+                      <span class="visually-hidden">{cell.label}</span>
+                    </a>
+                  ) : (
+                    <span class="slot" data-state={cell.state} data-slot={slot}>
+                      <span class="visually-hidden">{cell.label}</span>
+                    </span>
+                  )}
+                </td>
+              );
+            })}
+          </tr>
+        ))
+      }
+    </tbody>
+    <tfoot>
+      <tr>
+        <td></td>
+        {
+          ticks.map((slot) => (
+            <th colspan="4" scope="col">
+              {slotTime(slot)}
+            </th>
+          ))
+        }
+      </tr>
+    </tfoot>
+  </table>
+</div>

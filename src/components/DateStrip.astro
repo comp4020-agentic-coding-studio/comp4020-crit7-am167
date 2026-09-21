@@ -1,0 +1,71 @@
+---
+import { withQuery } from "../lib/links";
+import { addDays, bookableDates, dateLabel, isBookableDate, today } from "../lib/slots";
+
+// Which day you're looking at. A GET form with a real <select>, so it works
+// with JavaScript off; the arrows either side are plain links.
+
+interface Props {
+  date: string;
+  /** the page the form posts back to */
+  action: string;
+  /** query values to carry across a date change */
+  keep?: Record<string, string | number>;
+}
+
+const { date, action, keep = {} } = Astro.props;
+const dates = bookableDates();
+const previous = addDays(date, -1);
+const next = addDays(date, 1);
+const now = today();
+---
+
+<form class="datestrip" method="get" action={action}>
+  {
+    Object.entries(keep).map(([name, value]) => (
+      <input type="hidden" name={name} value={String(value)} />
+    ))
+  }
+  <a
+    class="btn btn-quiet btn-sm"
+    href={isBookableDate(previous) ? withQuery(action, { ...keep, date: previous }) : "#"}
+    aria-disabled={isBookableDate(previous) ? undefined : "true"}
+    tabindex={isBookableDate(previous) ? undefined : -1}
+  >
+    <span aria-hidden="true">&#9664;</span>
+    <span class="visually-hidden">Previous day</span>
+  </a>
+
+  <div class="datestrip-field">
+    <label class="visually-hidden" for="date">Date</label>
+    <select id="date" name="date">
+      {
+        dates.map((d) => (
+          <option value={d} selected={d === date}>
+            {dateLabel(d)}
+            {d === now ? " · today" : ""}
+          </option>
+        ))
+      }
+    </select>
+  </div>
+
+  <a
+    class="btn btn-quiet btn-sm"
+    href={isBookableDate(next) ? withQuery(action, { ...keep, date: next }) : "#"}
+    aria-disabled={isBookableDate(next) ? undefined : "true"}
+    tabindex={isBookableDate(next) ? undefined : -1}
+  >
+    <span aria-hidden="true">&#9654;</span>
+    <span class="visually-hidden">Next day</span>
+  </a>
+
+  <noscript><button class="btn btn-sm" type="submit">Go</button></noscript>
+</form>
+
+<script>
+  // With JavaScript on, changing the date just goes — no second click.
+  for (const form of document.querySelectorAll<HTMLFormElement>("form.datestrip")) {
+    form.querySelector("select")?.addEventListener("change", () => form.requestSubmit());
+  }
+</script>

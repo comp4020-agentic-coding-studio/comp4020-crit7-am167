@@ -1,0 +1,92 @@
+---
+import { currentUser } from "../lib/auth";
+import { bookingsOn, buildingBySlug, roomsInBuilding } from "../lib/booking";
+import { roomSlug } from "../lib/links";
+import { SLOTS } from "../lib/slots";
+
+// The campus, in 3D — and the one piece of this app that is pure
+// enhancement. The canvas is created by script or not at all: with no WebGL,
+// with `prefers-reduced-motion`, or before the module loads, the page is
+// already complete without it (the building cards on the map, the SVG floor
+// plan and the day grid on a building page all render server-side).
+//
+// The container carries transition:persist, so the WebGL context survives a
+// page navigation. That's the trick behind the zoom: clicking a building is
+// a real navigation to a real URL, but the scene doesn't reboot — it flies
+// the camera in while the server re-renders the page around it.
+//
+// State reaches the scene as a JSON <script> the page re-renders each
+// navigation; src/scenes/mount.ts reads it on astro:page-load.
+
+interface Props {
+  date: string;
+  /** campus mode: how free each building is, 0–1 */
+  buildings?: Array<{ slug: string; free: number; matching: number; yours: number }>;
+  /** building mode: the building to fly into */
+  focus?: string;
+  floor?: number;
+}
+
+const { date, buildings, focus, floor = 0 } = Astro.props;
+const user = currentUser(Astro.cookies);
+
+let rooms: Array<Record<string, unknown>> = [];
+if (focus) {
+  const building = buildingBySlug(focus);
+  if (building) {
+    const onFloor = roomsInBuilding(building.id).filter((room) => room.floor === floor);
+    const live = bookingsOn(
+      onFloor.map((room) => room.id),
+      date,
+    );
+    rooms = onFloor.map((room) => {
+      const held = live.filter((booking) => booking.roomId === room.id);
+      const used = held.reduce((n, booking) => n + (booking.endSlot - booking.startSlot), 0);
+      return {
+        code: room.code,
+        slug: roomSlug(room.code),
+        cx: room.cx,
+        cz: room.cz,
+        w: room.w,
+        d: room.d,
+        angle: room.angle,
+        capacity: room.capacity,
+        free: (SLOTS - used) / SLOTS,
+        yours: user ? held.some((booking) => booking.userId === user.id) : false,
+      };
+    });
+  }
+}
+
+const state = {
+  mode: focus ? "building" : "campus",
+  date,
+  focus: focus ?? null,
+  floor,
+  buildings: buildings ?? [],
+  rooms,
+};
+---
+
+<figure class="scene" data-scene transition:persist="campus-scene" hidden>
+  <canvas data-scene-canvas aria-hidden="true"></canvas>
+  <div class="scene-hud" data-scene-hud hidden></div>
+  <div class="scene-tools">
+    <button class="btn btn-quiet btn-sm" type="button" data-scene-reset>Reset view</button>
+  </div>
+  <figcaption class="scene-note muted">
+    Real building footprints, drag to orbit. Everything you can do here you can also do in the list
+    below.
+  </figcaption>
+</figure>
+
+{/* is:inline because this is data, not code — Astro would otherwise try
+    to process it as a module and hoist it out of the page. It has to
+    stay here, re-rendered per navigation, for the scene to read. */}
+<script is:inline type="application/json" data-scene-state set:html={JSON.stringify(state)}
+></script>
+
+<script>
+  import { mountScene } from "../scenes/mount";
+  mountScene();
+</script>

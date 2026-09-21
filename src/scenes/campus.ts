@@ -1,0 +1,953 @@
+import { navigate } from "astro:transitions/client";
+import {
+  BoxGeometry,
+  BufferGeometry,
+  CanvasTexture,
+  Color,
+  DirectionalLight,
+  EdgesGeometry,
+  ExtrudeGeometry,
+  Float32BufferAttribute,
+  Fog,
+  GridHelper,
+  Group,
+  HemisphereLight,
+  LineBasicMaterial,
+  LineSegments,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  PerspectiveCamera,
+  PlaneGeometry,
+  Raycaster,
+  SRGBColorSpace,
+  Scene,
+  Shape,
+  Sprite,
+  SpriteMaterial,
+  Vector2,
+  Vector3,
+  WebGLRenderer,
+} from "three";
+import type { Material, Object3D } from "three";
+import { BUILDINGS, ROADS, SCENERY, WATER, type Ring } from "../data/campus";
+
+// ANU Acton, extruded.
+//
+// Real OpenStreetMap footprints pushed up by their real storey count, tinted
+// by how free each building's rooms are. Click one and the camera flies in
+// while the page navigates underneath; its floors fan apart and the rooms on
+// the chosen level appear as boxes you can click.
+//
+// Two decisions worth knowing about:
+//
+// 1. IT RENDERS ON DEMAND. There is no unconditional requestAnimationFrame
+//    loop — a frame is drawn when something changes (a camera tween, a hover,
+//    a live booking) and then the loop stops. That keeps a phone's battery
+//    and a Fly machine's CPU out of it, and it means a screenshot tool isn't
+//    racing a canvas that repaints forever.
+//
+// 2. IT IS NEVER THE ONLY WAY. Every building and room here is also a link
+//    in the server-rendered page. This file can fail to load and nothing is
+//    lost but the spectacle.
+
+export type SceneState = {
+  mode: "campus" | "building";
+  date: string;
+  focus: string | null;
+  floor: number;
+  buildings: Array<{ slug: string; free: number; matching: number; yours: number }>;
+  rooms: Array<{
+    code: string;
+    slug: string;
+    cx: number;
+    cz: number;
+    w: number;
+    d: number;
+    angle: number;
+    capacity: number;
+    free: number;
+    yours: boolean;
+  }>;
+};
+
+const COLOUR = {
+  ground: 0x090b0f,
+  scenery: 0x232b38,
+  sceneryEdge: 0x38445a,
+  road: 0x161c25,
+  water: 0x113b49,
+  free: 0x3ddbc4,
+  busy: 0x39414f,
+  mine: 0xffb224,
+};
+
+/** A real storey is about 3.6 m. At the scale a whole campus fits on a
+ *  screen that reads as a car park, so height is exaggerated — this map is
+ *  for finding a building, not measuring one, and README.md says so. */
+const STOREY = 8;
+/** world up, reused rather than reallocated per frame */
+const UP = /* @__PURE__ */ (() => new Vector3(0, 1, 0))();
+const ROOM_HEIGHT = 5;
+
+/** How far the floors drift apart in building mode. */
+const FAN = 11;
+
+export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
+  const renderer = new WebGLRenderer({
+    canvas,
+    antialias: true,
+    powerPreference: "high-performance",
+  });
+  // a phone doesn't need 3× the pixels to look sharp, and it does need the
+  // battery — this is the single biggest cost lever in the file
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+  const scene = new Scene();
+  scene.background = new Color(COLOUR.ground);
+  scene.fog = new Fog(COLOUR.ground, 900, 2600);
+
+  const camera = new PerspectiveCamera(42, 1, 1, 4000);
+
+  // --- lights ------------------------------------------------------------
+  scene.add(new HemisphereLight(0xa8bcdb, 0x0a0f18, 2.1));
+  const key = new DirectionalLight(0xe6eeff, 2.4);
+  key.position.set(-380, 520, -240);
+  scene.add(key);
+  const fill = new DirectionalLight(0x6f8cb8, 0.9);
+  fill.position.set(320, 180, 420);
+  scene.add(fill);
+  const rim = new DirectionalLight(0x3ddbc4, 0.7);
+  rim.position.set(180, 90, -420);
+  scene.add(rim);
+
+  // --- static ground -----------------------------------------------------
+  const world = new Group();
+  scene.add(world);
+
+  const ground = new Mesh(
+    new PlaneGeometry(4000, 4000),
+    new MeshBasicMaterial({ color: COLOUR.ground }),
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -0.4;
+  world.add(ground);
+
+  const grid = new GridHelper(2400, 24, 0x263042, 0x171e29);
+  grid.position.y = -0.3;
+  (grid.material as Material).transparent = true;
+  (grid.material as Material).opacity = 0.5;
+  world.add(grid);
+
+  for (const [lines, width, colour, y] of [
+    [ROADS, 7, COLOUR.road, -0.18],
+    [WATER, 9, COLOUR.water, -0.12],
+  ] as const) {
+    const merged = mergeRibbons(lines, width, y);
+    if (merged) {
+      world.add(new Mesh(merged, new MeshBasicMaterial({ color: colour })));
+    }
+  }
+
+  // every other building on campus, as one mesh — 240 draw calls would be
+  // silly for something nobody can click
+  const sceneryGeometry = mergeExtrusions(
+    SCENERY.map((b) => ({ ring: b.ring, height: Math.min(b.levels, 8) * STOREY })),
+  );
+  const sceneryMaterial = new MeshStandardMaterial({
+    color: COLOUR.scenery,
+    roughness: 0.82,
+    metalness: 0.05,
+    transparent: true,
+    opacity: 1,
+  });
+  const sceneryEdgeMaterial = new LineBasicMaterial({
+    color: COLOUR.sceneryEdge,
+    transparent: true,
+    opacity: 0.85,
+  });
+  if (sceneryGeometry) {
+    world.add(new Mesh(sceneryGeometry, sceneryMaterial));
+    world.add(new LineSegments(new EdgesGeometry(sceneryGeometry, 25), sceneryEdgeMaterial));
+  }
+
+  // --- the bookable buildings -------------------------------------------
+  type BuildingParts = {
+    slug: string;
+    code: string;
+    name: string;
+    levels: number;
+    centre: Vector3;
+    radius: number;
+    group: Group;
+    /** one slab per storey, so they can fan apart */
+    slabs: Mesh[];
+    edges: LineSegments[];
+    label: Sprite;
+  };
+
+  const parts = new Map<string, BuildingParts>();
+  const pickableBuildings: Object3D[] = [];
+
+  for (const building of BUILDINGS) {
+    const group = new Group();
+    const slabs: Mesh[] = [];
+    const edges: LineSegments[] = [];
+
+    for (let level = 0; level < building.levels; level++) {
+      const geometry = mergeExtrusions(
+        building.rings.map((ring) => ({ ring, height: STOREY * 0.94 })),
+      );
+      if (!geometry) continue;
+      const material = new MeshStandardMaterial({
+        color: COLOUR.busy,
+        roughness: 0.55,
+        metalness: 0.08,
+        emissive: new Color(COLOUR.free),
+        emissiveIntensity: 0,
+        transparent: true,
+        opacity: 1,
+      });
+      const slab = new Mesh(geometry, material);
+      slab.position.y = level * STOREY;
+      slab.userData = { slug: building.slug, level };
+      group.add(slab);
+      slabs.push(slab);
+      pickableBuildings.push(slab);
+
+      const outline = new LineSegments(
+        new EdgesGeometry(geometry, 25),
+        new LineBasicMaterial({ color: 0x5c6a80, transparent: true, opacity: 0.55 }),
+      );
+      outline.position.y = slab.position.y;
+      group.add(outline);
+      edges.push(outline);
+    }
+
+    const label = makeLabel(building.code);
+    label.position.set(building.centre[0], building.levels * STOREY + 26, building.centre[1]);
+    group.add(label);
+
+    world.add(group);
+    parts.set(building.slug, {
+      slug: building.slug,
+      code: building.code,
+      name: building.name,
+      levels: building.levels,
+      centre: new Vector3(building.centre[0], 0, building.centre[1]),
+      radius: building.radius,
+      group,
+      slabs,
+      edges,
+      label,
+    });
+  }
+
+  // --- rooms, built and torn down as the floor changes -------------------
+  const roomGroup = new Group();
+  world.add(roomGroup);
+  let pickableRooms: Object3D[] = [];
+
+  // --- camera rig --------------------------------------------------------
+  // Framing the campus is computed, not guessed. ANU Acton is a long thin
+  // site — Menzies sits half a kilometre south of Birch — and the canvas is
+  // wide and short on a desktop but tall and narrow on a phone. A hand-
+  // tuned distance fits one of those and crops a building off the other.
+  //
+  // So: point the camera down whichever axis puts the campus's long side
+  // across the screen's long side, then solve for the distance at which
+  // every bookable building lands inside the frustum.
+  // Each building as a bounding sphere: its footprint radius, plus half its
+  // extruded height, plus room for the label floating above the roof.
+  const spots = BUILDINGS.map((b) => ({
+    at: new Vector3(b.centre[0], (b.levels * STOREY) / 2, b.centre[1]),
+    radius: Math.hypot(b.radius, (b.levels * STOREY) / 2) + 30,
+  }));
+  const campusCentre = new Vector3(
+    (Math.min(...spots.map((s) => s.at.x)) + Math.max(...spots.map((s) => s.at.x))) / 2,
+    0,
+    (Math.min(...spots.map((s) => s.at.z)) + Math.max(...spots.map((s) => s.at.z))) / 2,
+  );
+  const extentX = Math.max(...spots.map((s) => Math.abs(s.at.x - campusCentre.x)));
+  const extentZ = Math.max(...spots.map((s) => Math.abs(s.at.z - campusCentre.z)));
+
+  const ELEVATION = 0.72;
+  /** Comfortably inside camera.far, so a bad fit can never blank the view. */
+  const MAX_DISTANCE = 2600;
+
+  type Sphere = { at: Vector3; radius: number };
+
+  /** The distance at which every one of these spheres lands inside the
+   *  frustum, looking at `target` from `azimuth`/`elevation`.
+   *
+   *  Solved by actually projecting, rather than measuring extents on the
+   *  target plane: under perspective, something NEARER the camera than the
+   *  centre subtends more angle, so a flat estimate lets it fall off the
+   *  edge. Each pass grows the distance by however much the worst sphere
+   *  overflows, which converges in a handful of iterations. */
+  function solveDistance(
+    spheres: Sphere[],
+    target: Vector3,
+    azimuth: number,
+    elevation: number,
+  ): number {
+    const vHalf = Math.tan((camera.fov * Math.PI) / 360);
+    const hHalf = vHalf * camera.aspect;
+    if (!Number.isFinite(hHalf) || hHalf <= 0 || spheres.length === 0) return MAX_DISTANCE / 2;
+
+    const offset = new Vector3(
+      Math.cos(elevation) * Math.sin(azimuth),
+      Math.sin(elevation),
+      Math.cos(elevation) * Math.cos(azimuth),
+    );
+
+    let distance = 60;
+    for (let pass = 0; pass < 24; pass++) {
+      const eye = target.clone().addScaledVector(offset, distance);
+      const forward = target.clone().sub(eye).normalize();
+      const right = new Vector3().crossVectors(forward, UP).normalize();
+      const up = new Vector3().crossVectors(right, forward).normalize();
+
+      let overflow = 0;
+      for (const sphere of spheres) {
+        const rel = sphere.at.clone().sub(eye);
+        const depth = rel.dot(forward);
+        if (depth <= sphere.radius) {
+          overflow = Math.max(overflow, 2);
+          continue;
+        }
+        const x = Math.abs(rel.dot(right)) + sphere.radius;
+        const y = Math.abs(rel.dot(up)) + sphere.radius;
+        overflow = Math.max(overflow, x / (depth * hHalf), y / (depth * vHalf));
+      }
+
+      if (overflow <= 1.002) break;
+      distance *= Math.min(2, overflow);
+    }
+    return distance;
+  }
+
+  /** Azimuth and distance that fit the whole campus at the current aspect. */
+  function fitCampus(): { azimuth: number; distance: number } {
+    const wide = canvas.clientWidth >= canvas.clientHeight;
+    // put the longer ground axis along the longer screen axis
+    const alongZ = extentZ > extentX;
+    const azimuth = alongZ === wide ? -Math.PI / 2 : 0;
+    const distance = solveDistance(spots, campusCentre, azimuth, ELEVATION);
+
+    // A distance beyond the far plane renders nothing at all, and an empty
+    // canvas is a far worse failure than a slightly tight crop.
+    return { azimuth, distance: Math.min(distance * 1.04, MAX_DISTANCE) };
+  }
+
+  const initial = fitCampus();
+  const view = {
+    target: campusCentre.clone(),
+    distance: initial.distance,
+    azimuth: initial.azimuth,
+    elevation: ELEVATION,
+  };
+  const goal = { ...view, target: view.target.clone() };
+  let tweenUntil = 0;
+  let tweenFrom = { ...view, target: view.target.clone() };
+  let tweenStart = 0;
+
+  function applyCamera(): void {
+    const r = Math.max(28, view.distance);
+    const e = clamp(view.elevation, 0.22, 1.45);
+    camera.position.set(
+      view.target.x + r * Math.cos(e) * Math.sin(view.azimuth),
+      view.target.y + r * Math.sin(e),
+      view.target.z + r * Math.cos(e) * Math.cos(view.azimuth),
+    );
+    camera.lookAt(view.target);
+  }
+
+  function flyTo(
+    target: Vector3,
+    distance: number,
+    elevation: number,
+    ms = 900,
+    azimuth = view.azimuth,
+  ): void {
+    tweenFrom = { ...view, target: view.target.clone() };
+    goal.target = target.clone();
+    goal.distance = distance;
+    goal.elevation = elevation;
+    // take the short way round, so a reset never spins the campus
+    goal.azimuth = view.azimuth + wrapAngle(azimuth - view.azimuth);
+    tweenStart = performance.now();
+    tweenUntil = tweenStart + ms;
+    request();
+  }
+
+  // --- render on demand --------------------------------------------------
+  let queued = false;
+  let running = false;
+
+  function request(): void {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(frame);
+  }
+
+  function frame(now: number): void {
+    queued = false;
+    running = false;
+
+    if (now < tweenUntil) {
+      const t = ease((now - tweenStart) / (tweenUntil - tweenStart));
+      view.target.lerpVectors(tweenFrom.target, goal.target, t);
+      view.distance = lerp(tweenFrom.distance, goal.distance, t);
+      view.elevation = lerp(tweenFrom.elevation, goal.elevation, t);
+      view.azimuth = lerp(tweenFrom.azimuth, goal.azimuth, t);
+      running = true;
+    } else if (tweenUntil !== 0) {
+      view.target.copy(goal.target);
+      view.distance = goal.distance;
+      view.elevation = goal.elevation;
+      view.azimuth = goal.azimuth;
+      tweenUntil = 0;
+    }
+
+    applyCamera();
+    renderer.render(scene, camera);
+    if (running) request();
+  }
+
+  // --- sizing ------------------------------------------------------------
+  function resize(): void {
+    // The container is hidden until the scene is ready, and a hidden
+    // element measures 0×0. Fitting the camera to that produced a distance
+    // past the far plane and a black canvas, so: no layout, no decisions.
+    const width = container.clientWidth;
+    if (width < 50) return;
+    const height = Math.max(
+      260,
+      Math.min(
+        Math.round(window.innerHeight * 0.62),
+        Math.round(width * (window.innerWidth < 760 ? 1.15 : 0.52)),
+      ),
+    );
+    renderer.setSize(width, height, false);
+    canvas.style.width = "100%";
+    canvas.style.height = `${height}px`;
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+    // the fit depends on the aspect, so a resize re-frames — but only while
+    // the visitor hasn't taken the camera somewhere themselves
+    if (current?.mode !== "building" && !touched) {
+      const fit = fitCampus();
+      view.distance = fit.distance;
+      view.azimuth = fit.azimuth;
+      view.target.copy(campusCentre);
+      view.elevation = ELEVATION;
+      // drop any flight still aimed using the previous aspect, or it will
+      // lerp the camera straight back to where it no longer belongs
+      tweenUntil = 0;
+    }
+    request();
+  }
+
+  /** set once the visitor drags or zooms, so a resize stops overriding
+   *  where they put the camera */
+  let touched = false;
+  /** the state the scene is currently showing */
+  let current: SceneState | undefined;
+
+  const observer = new ResizeObserver(resize);
+  observer.observe(container);
+  resize();
+
+  // --- interaction -------------------------------------------------------
+  const raycaster = new Raycaster();
+  const pointer = new Vector2();
+  const hud = container.querySelector<HTMLElement>("[data-scene-hud]");
+  let hovered: Object3D | undefined;
+
+  function pickAt(event: PointerEvent | MouseEvent): Object3D | undefined {
+    const rect = canvas.getBoundingClientRect();
+    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    const targets = current?.mode === "building" ? pickableRooms : pickableBuildings;
+    return raycaster.intersectObjects(targets, false)[0]?.object;
+  }
+
+  let throttled = 0;
+  canvas.addEventListener("pointermove", (event) => {
+    if (dragging) return;
+    const now = performance.now();
+    if (now - throttled < 40) return;
+    throttled = now;
+
+    const hit = pickAt(event);
+    if (hit === hovered) return;
+    hovered = hit;
+    canvas.style.cursor = hit ? "pointer" : "grab";
+    showHud(hit);
+    paintHighlight();
+    request();
+  });
+
+  canvas.addEventListener("pointerleave", () => {
+    hovered = undefined;
+    showHud(undefined);
+    paintHighlight();
+    request();
+  });
+
+  function showHud(object: Object3D | undefined): void {
+    if (!hud) return;
+    const data = object?.userData as { label?: string; slug?: string } | undefined;
+    if (!data) {
+      hud.hidden = true;
+      return;
+    }
+    const building = data.slug ? parts.get(data.slug) : undefined;
+    hud.textContent = data.label ?? (building ? `${building.code} — ${building.name}` : "");
+    hud.hidden = !hud.textContent;
+  }
+
+  // drag to orbit; a click that didn't drag is a selection
+  let dragging = false;
+  let moved = 0;
+  let last = { x: 0, y: 0 };
+
+  canvas.style.touchAction = "pan-y";
+  canvas.addEventListener("pointerdown", (event) => {
+    dragging = true;
+    moved = 0;
+    last = { x: event.clientX, y: event.clientY };
+    // capture can refuse a pointer the browser doesn't consider active
+    try {
+      canvas.setPointerCapture(event.pointerId);
+    } catch {
+      // dragging still works without it; only the edges get sloppier
+    }
+    canvas.style.cursor = "grabbing";
+  });
+
+  canvas.addEventListener("pointerup", (event) => {
+    dragging = false;
+    try {
+      canvas.releasePointerCapture(event.pointerId);
+    } catch {
+      // nothing was captured; nothing to release
+    }
+    canvas.style.cursor = "grab";
+    if (moved > 6) return;
+
+    const hit = pickAt(event);
+    const data = hit?.userData as { slug?: string; href?: string } | undefined;
+    if (!data) return;
+
+    // A room box knows its own URL. A building doesn't: its destination
+    // depends on the date being shown, which changes under it — so the
+    // link is built here from the state the scene is currently painting.
+    const href =
+      data.href ?? (data.slug ? `/b/${data.slug}/?date=${current?.date ?? ""}` : undefined);
+    if (href) void navigate(href);
+  });
+
+  canvas.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    const dx = event.clientX - last.x;
+    const dy = event.clientY - last.y;
+    moved += Math.abs(dx) + Math.abs(dy);
+    last = { x: event.clientX, y: event.clientY };
+    view.azimuth -= dx * 0.005;
+    view.elevation = clamp(view.elevation + dy * 0.005, 0.22, 1.45);
+    touched = true;
+    tweenUntil = 0;
+    request();
+  });
+
+  canvas.addEventListener(
+    "wheel",
+    (event) => {
+      event.preventDefault();
+      view.distance = clamp(view.distance * (1 + Math.sign(event.deltaY) * 0.12), 40, 3200);
+      touched = true;
+      tweenUntil = 0;
+      request();
+    },
+    { passive: false },
+  );
+
+  container.querySelector("[data-scene-reset]")?.addEventListener("click", () => {
+    touched = false;
+    if (current) frameFor(current, 650);
+  });
+
+  // --- painting ----------------------------------------------------------
+
+  /** Slab colour: cool where the building is free, dim where it's taken,
+   *  hot where you already have a room in it. */
+  function paint(state: SceneState): void {
+    const byslug = new Map(state.buildings.map((b) => [b.slug, b]));
+    const inside = state.mode === "building";
+
+    // Inside a building, the rest of campus is context, not competition —
+    // it stays visible enough to say where you are and no more.
+    sceneryMaterial.opacity = inside ? 0.28 : 1;
+    sceneryEdgeMaterial.opacity = inside ? 0.18 : 0.85;
+    (grid.material as Material).opacity = inside ? 0.12 : 0.5;
+
+    for (const building of parts.values()) {
+      const focused = state.mode === "building" && state.focus === building.slug;
+      const info = byslug.get(building.slug);
+      const free = info?.free ?? 0.5;
+      const dimmed = state.mode === "building" && !focused;
+
+      // A building at 59% free and one at 92% should not look the same.
+      // Squaring the ratio spreads the busy end of the range, where the
+      // difference is the one you actually care about.
+      const heat = free ** 1.6;
+      // Inside a building, the storey slabs are the floor you stand on, not
+      // the subject: they go quiet so the room boxes sitting on them are
+      // what your eye lands on.
+      const colour = new Color(COLOUR.busy).lerp(
+        new Color(info?.yours ? COLOUR.mine : COLOUR.free),
+        state.mode === "building" ? (focused ? 0.16 : 0.1) : 0.1 + heat * 0.9,
+      );
+
+      building.slabs.forEach((slab, level) => {
+        const material = slab.material as MeshStandardMaterial;
+        material.color.copy(colour);
+        material.emissive.setHex(info?.yours ? COLOUR.mine : COLOUR.free);
+        material.emissiveIntensity = dimmed ? 0.03 : focused ? 0.04 : 0.06 + heat * 0.7;
+        // the storey you're looking at stays solid; the ones above and below
+        // go translucent, so the fan reads as a cutaway rather than a stack
+        const chosen = focused && level === state.floor;
+        material.opacity = dimmed ? 0.3 : focused && !chosen ? 0.42 : 1;
+        material.depthWrite = !dimmed && (chosen || !focused);
+
+        // the fan: in building mode the focused building's storeys drift
+        // apart so you can see into the one you're looking at
+        const spread = focused ? FAN : 0;
+        const lift = chosen ? 2.5 : 0;
+        slab.position.y = level * (STOREY + spread) + lift;
+        const outline = building.edges[level];
+        if (outline) {
+          outline.position.y = slab.position.y;
+          (outline.material as LineBasicMaterial).opacity = dimmed ? 0.12 : 0.55;
+        }
+      });
+
+      const top = building.levels * (focused ? STOREY + FAN : STOREY);
+      building.label.position.y = top + 26;
+      (building.label.material as SpriteMaterial).opacity = dimmed ? 0.18 : 0.95;
+      building.label.visible = state.mode === "campus" || focused;
+    }
+
+    paintHighlight();
+  }
+
+  function paintHighlight(): void {
+    const data = hovered?.userData as { slug?: string } | undefined;
+    for (const building of parts.values()) {
+      const lit = data?.slug === building.slug && current?.mode === "campus";
+      for (const slab of building.slabs) {
+        const material = slab.material as MeshStandardMaterial;
+        material.emissiveIntensity = lit
+          ? 0.75
+          : (material.userData.base as number | undefined) ?? material.emissiveIntensity;
+        if (lit) material.userData.base ??= material.emissiveIntensity;
+      }
+    }
+    for (const mesh of pickableRooms) {
+      const material = (mesh as Mesh).material as MeshStandardMaterial;
+      material.emissiveIntensity = mesh === hovered ? 0.85 : (material.userData.base as number) ?? 0.2;
+    }
+  }
+
+  /** Build the room boxes for the floor being shown. */
+  function buildRooms(state: SceneState): void {
+    for (const child of [...roomGroup.children]) {
+      roomGroup.remove(child);
+      disposeDeep(child);
+    }
+    pickableRooms = [];
+    if (state.mode !== "building" || !state.focus) return;
+
+    const building = parts.get(state.focus);
+    if (!building) return;
+    const y = state.floor * (STOREY + FAN) + 2.5 + STOREY * 0.94;
+
+    for (const room of state.rooms) {
+      const geometry = new BoxGeometry(room.w, ROOM_HEIGHT, room.d);
+      const tint = new Color(COLOUR.busy).lerp(
+        new Color(room.yours ? COLOUR.mine : COLOUR.free),
+        room.yours ? 0.95 : 0.05 + room.free ** 1.5 * 0.95,
+      );
+      const material = new MeshStandardMaterial({
+        color: tint,
+        roughness: 0.4,
+        metalness: 0.05,
+        emissive: new Color(room.yours ? COLOUR.mine : COLOUR.free),
+        emissiveIntensity: room.yours ? 0.5 : 0.05 + room.free ** 1.5 * 0.55,
+      });
+      material.userData.base = material.emissiveIntensity;
+
+      const mesh = new Mesh(geometry, material);
+      mesh.position.set(room.cx, y + ROOM_HEIGHT / 2, room.cz);
+      mesh.rotation.y = -room.angle;
+      mesh.userData = {
+        href: `/b/${state.focus}/${room.slug}/?date=${state.date}`,
+        label: `${room.code} — ${room.capacity} seats — ${Math.round(room.free * 100)}% free`,
+      };
+      roomGroup.add(mesh);
+      pickableRooms.push(mesh);
+    }
+  }
+
+  function frameFor(state: SceneState, ms = 900): void {
+    if (state.mode === "building" && state.focus) {
+      const building = parts.get(state.focus);
+      if (building) {
+        // A fanned building is much taller than it is wide — five storeys
+        // pulled apart is nearly 100 m of scene — so the distance is solved
+        // against the whole fan rather than guessed from the footprint.
+        const fanned = building.levels * (STOREY + FAN);
+        const middle = new Vector3(building.centre.x, fanned / 2, building.centre.z);
+        const elevation = 0.5;
+        const sphere = {
+          at: middle,
+          radius: Math.hypot(building.radius, fanned / 2) + 18,
+        };
+        const distance = solveDistance([sphere], middle, view.azimuth, elevation);
+        // look slightly above the chosen storey, not at the building's waist
+        const look = new Vector3(
+          building.centre.x,
+          state.floor * (STOREY + FAN) + STOREY,
+          building.centre.z,
+        );
+        flyTo(look.lerp(middle, 0.45), distance, elevation, ms);
+        return;
+      }
+    }
+    const fit = fitCampus();
+    flyTo(campusCentre.clone(), fit.distance, ELEVATION, ms, fit.azimuth);
+  }
+
+  // --- live updates ------------------------------------------------------
+  // A booking made in another tab re-tints this one. The page's own lists
+  // update on the next navigation; the map updates now.
+  const events = new EventSource("/api/events");
+  events.addEventListener("message", (event) => {
+    try {
+      const booking = JSON.parse((event as MessageEvent<string>).data) as {
+        buildingSlug: string;
+        date: string;
+      };
+      if (!current || booking.date !== current.date) return;
+      const entry = current.buildings.find((b) => b.slug === booking.buildingSlug);
+      if (entry) {
+        // nudge the tint without a round trip; the next navigation carries
+        // the exact figure
+        entry.free = clamp(entry.free + (booking.date ? -0.01 : 0.01), 0, 1);
+      }
+      paint(current);
+      request();
+    } catch {
+      // a malformed frame is not worth breaking the view over
+    }
+  });
+
+  return {
+    update(state: SceneState): void {
+      const changedView =
+        current?.mode !== state.mode ||
+        current?.focus !== state.focus ||
+        current?.floor !== state.floor;
+      current = state;
+      buildRooms(state);
+      paint(state);
+      if (changedView) frameFor(state);
+      request();
+    },
+    dispose(): void {
+      events.close();
+      observer.disconnect();
+      renderer.dispose();
+    },
+  };
+}
+
+// --- geometry helpers ------------------------------------------------------
+
+/** A closed ring, as an extruded solid standing on the ground plane.
+ *  The shape is built in XY with y = -worldZ so that rotating it flat maps
+ *  it back onto world XZ the right way round, with the extrusion going up. */
+function extrude(ring: Ring, height: number): ExtrudeGeometry | undefined {
+  if (ring.length < 3) return undefined;
+  const shape = new Shape();
+  shape.moveTo(ring[0][0], -ring[0][1]);
+  for (const [x, z] of ring.slice(1)) shape.lineTo(x, -z);
+  shape.closePath();
+
+  const geometry = new ExtrudeGeometry(shape, { depth: height, bevelEnabled: false });
+  geometry.rotateX(-Math.PI / 2);
+  return geometry;
+}
+
+function mergeExtrusions(
+  items: Array<{ ring: Ring; height: number }>,
+): BufferGeometry | undefined {
+  const parts = items
+    .map((item) => extrude(item.ring, item.height))
+    .filter((g): g is ExtrudeGeometry => g !== undefined);
+  if (parts.length === 0) return undefined;
+  const merged = mergeGeometries(parts);
+  for (const part of parts) part.dispose();
+  return merged;
+}
+
+/** A polyline widened into a flat ribbon lying on the ground. */
+function ribbon(points: Ring, width: number, y: number): BufferGeometry | undefined {
+  if (points.length < 2) return undefined;
+  const half = width / 2;
+  const vertices: number[] = [];
+  const indices: number[] = [];
+
+  for (let i = 0; i < points.length; i++) {
+    const previous = points[Math.max(0, i - 1)];
+    const next = points[Math.min(points.length - 1, i + 1)];
+    let dx = next[0] - previous[0];
+    let dz = next[1] - previous[1];
+    const length = Math.hypot(dx, dz) || 1;
+    dx /= length;
+    dz /= length;
+    // normal in the ground plane
+    const nx = -dz * half;
+    const nz = dx * half;
+    vertices.push(points[i][0] + nx, y, points[i][1] + nz);
+    vertices.push(points[i][0] - nx, y, points[i][1] - nz);
+  }
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = i * 2;
+    indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+  }
+
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(vertices, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function mergeRibbons(lines: Ring[], width: number, y: number): BufferGeometry | undefined {
+  const parts = lines
+    .map((line) => ribbon(line, width, y))
+    .filter((g): g is BufferGeometry => g !== undefined);
+  if (parts.length === 0) return undefined;
+  const merged = mergeGeometries(parts);
+  for (const part of parts) part.dispose();
+  return merged;
+}
+
+/** Concatenate position/normal-only geometries. three ships a utility for
+ *  this in its addons, but it insists every input carry identical attribute
+ *  sets — ours do, and doing it here keeps the addon out of the bundle. */
+function mergeGeometries(parts: BufferGeometry[]): BufferGeometry {
+  const positions: number[] = [];
+  const normals: number[] = [];
+
+  for (const part of parts) {
+    const indexed = part.index ? part.toNonIndexed() : part;
+    const position = indexed.getAttribute("position");
+    if (!indexed.getAttribute("normal")) indexed.computeVertexNormals();
+    const normal = indexed.getAttribute("normal");
+    for (let i = 0; i < position.count; i++) {
+      positions.push(position.getX(i), position.getY(i), position.getZ(i));
+      normals.push(normal.getX(i), normal.getY(i), normal.getZ(i));
+    }
+    if (indexed !== part) indexed.dispose();
+  }
+
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("normal", new Float32BufferAttribute(normals, 3));
+  return geometry;
+}
+
+/** A building code, drawn to a canvas and hung above the roof. */
+function makeLabel(text: string): Sprite {
+  const scale = 4;
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  const font = `600 ${13 * scale}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  if (context) {
+    context.font = font;
+    canvas.width = Math.ceil(context.measureText(text).width) + 20 * scale;
+    canvas.height = 26 * scale;
+  }
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.font = font;
+    ctx.fillStyle = "rgba(10,12,16,0.72)";
+    roundRect(ctx, 0, 0, canvas.width, canvas.height, 6 * scale);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.22)";
+    ctx.lineWidth = 1 * scale;
+    ctx.stroke();
+    ctx.fillStyle = "#e9edf5";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2 + scale);
+  }
+
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  // sizeAttenuation off: the label keeps the same size on screen however far
+  // away the camera is, so a code is as readable on a 390 px phone framing
+  // the whole campus as it is zoomed into one building.
+  const sprite = new Sprite(
+    new SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: false,
+      sizeAttenuation: false,
+    }),
+  );
+  const height = 0.036; // a fraction of the viewport height
+  sprite.scale.set((canvas.width / canvas.height) * height, height, 1);
+  sprite.renderOrder = 10;
+  return sprite;
+}
+
+function roundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): void {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function disposeDeep(object: Object3D): void {
+  object.traverse((child) => {
+    const mesh = child as Mesh;
+    mesh.geometry?.dispose();
+    const material = mesh.material as Material | Material[] | undefined;
+    if (Array.isArray(material)) for (const m of material) m.dispose();
+    else material?.dispose();
+  });
+}
+
+
+const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const ease = (t: number) => 1 - (1 - Math.min(1, Math.max(0, t))) ** 3;
+/** the equivalent angle in (-π, π], so a turn never goes the long way */
+const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));

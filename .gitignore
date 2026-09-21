@@ -24,3 +24,7 @@ mise.local.toml
 # your course API key, and this repo goes public when you ship. Your tracked
 # harness is CLAUDE.md (and any AGENTS.md), not this directory.
 .claude/
+
+# Overpass responses cached by scripts/fetch-campus.ts; the committed
+# src/data/campus.ts is the real artefact.
+.cache/

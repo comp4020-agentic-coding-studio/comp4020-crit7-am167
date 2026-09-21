@@ -1,0 +1,98 @@
+---
+import type { BookingRow } from "../lib/booking";
+import { roomUrl } from "../lib/links";
+import type { Building, Room } from "../lib/schema";
+import { SLOTS } from "../lib/slots";
+
+// The floor, flat. Real building outline (OpenStreetMap), invented rooms
+// laid out inside it by src/lib/floorplan.ts.
+//
+// This is server-rendered SVG, always in the page: it's what a visitor sees
+// before the 3D scene finishes loading, what they keep if WebGL isn't
+// available or they've asked for reduced motion, and what the accessibility
+// check can actually read. Every room is a real link with a real label, so
+// the plan is navigable by keyboard whether or not the canvas ever appears.
+
+interface Props {
+  building: Building;
+  rooms: Room[];
+  bookings: BookingRow[];
+  date: string;
+  userId?: number;
+}
+
+const { building, rooms, bookings, date, userId } = Astro.props;
+
+const plan = JSON.parse(building.plan) as Array<[number, number]>;
+const xs = plan.map((p) => p[0]);
+const zs = plan.map((p) => p[1]);
+const pad = 4;
+const minX = Math.min(...xs) - pad;
+const minZ = Math.min(...zs) - pad;
+const width = Math.max(...xs) - minX + pad;
+const height = Math.max(...zs) - minZ + pad;
+
+const outline = `${plan.map(([x, z]) => `${x.toFixed(1)},${z.toFixed(1)}`).join(" ")}`;
+
+/** booked half hours per room, and who holds them */
+const used = new Map<number, number>();
+const mine = new Set<number>();
+for (const booking of bookings) {
+  used.set(booking.roomId, (used.get(booking.roomId) ?? 0) + (booking.endSlot - booking.startSlot));
+  if (userId !== undefined && booking.userId === userId) mine.add(booking.roomId);
+}
+
+const cells = rooms.map((room) => {
+  const booked = used.get(room.id) ?? 0;
+  const free = SLOTS - booked;
+  return {
+    room,
+    free,
+    state: mine.has(room.id) ? "mine" : free === 0 ? "full" : "free",
+    // fill opacity tracks how free the room is, so a busy floor reads dark
+    tint: Math.max(0.08, free / SLOTS),
+    deg: (room.angle * 180) / Math.PI,
+  };
+});
+---
+
+<figure class="floorplan" data-floorplan>
+  <svg
+    viewBox={`${minX.toFixed(1)} ${minZ.toFixed(1)} ${width.toFixed(1)} ${height.toFixed(1)}`}
+    role="group"
+    aria-label={`Floor plan of ${building.name}`}
+    preserveAspectRatio="xMidYMid meet"
+  >
+    <polygon class="fp-shell" points={outline}></polygon>
+    {
+      cells.map(({ room, free, state, tint, deg }) => (
+        <a
+          href={roomUrl(building.slug, room.code, { date })}
+          class="fp-room"
+          data-state={state}
+          data-room={room.id}
+          aria-label={`${room.code}, seats ${room.capacity}, ${free} of ${SLOTS} half hours free`}
+        >
+          {/* both: <title> is the hover tooltip, aria-label is the name —
+              an SVG <a> carrying only a <title> reads as unnamed to some
+              tooling, and the accessibility floor is right to say so */}
+          <title>
+            {room.code} — seats {room.capacity} — {free} of {SLOTS} half hours free
+          </title>
+          <rect
+            x={(room.cx - room.w / 2).toFixed(2)}
+            y={(room.cz - room.d / 2).toFixed(2)}
+            width={room.w.toFixed(2)}
+            height={room.d.toFixed(2)}
+            transform={`rotate(${deg.toFixed(3)} ${room.cx.toFixed(2)} ${room.cz.toFixed(2)})`}
+            style={`--tint:${tint.toFixed(3)}`}
+            rx="0.4"
+          />
+        </a>
+      ))
+    }
+  </svg>
+  <figcaption class="muted">
+    Outline is the real building; rooms inside it are invented. Tap a room to see its day.
+  </figcaption>
+</figure>
