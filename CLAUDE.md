@@ -129,6 +129,14 @@ invisible to those checks.
   test the contract (what the page must do), not the implementation, so the
   tests survive a change of approach.
 
+## Process logging
+
+After each meaningful chunk of work --- a feature, a fix, a design decision ---
+append a short entry to `notes/log.md` describing what was done and why. Do
+this as we go, not reconstructed at the end of the assignment. Keep entries
+terse; they're raw material for `PROCESS.md`, not the write-up itself, so log
+generously rather than sparingly.
+
 ## Adversarial review
 
 `pnpm check` and its tests only catch what's mechanical — structure, an

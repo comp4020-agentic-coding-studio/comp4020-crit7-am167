@@ -121,7 +121,13 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
   scene.background = new Color(COLOUR.ground);
   scene.fog = new Fog(COLOUR.ground, 1000, 3000);
 
-  const camera = new PerspectiveCamera(42, 1, 1, 4000);
+  // A near plane of 1 against a far plane of 4000 throws away almost all
+  // the depth buffer on space the camera never occupies — which showed up
+  // as the ground markings flickering against each other while panning,
+  // because 0.02 of world separation stopped being resolvable out at 800
+  // units. The camera is clamped to 40 units away at closest, so 6 is
+  // conservative and buys back several bits of precision everywhere.
+  const camera = new PerspectiveCamera(42, 1, 6, 4000);
 
   // --- lights ------------------------------------------------------------
   scene.add(new HemisphereLight(0xffffff, 0xd8cfbc, 2.6));
@@ -160,20 +166,42 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
   // Footpaths get a casing — a slightly wider, darker ribbon underneath a
   // pale one — which is how paper maps make a thin line readable without
   // making it thick. A flat 3 px line on warm paper just disappears.
-  for (const [lines, width, colour, y, taper] of [
+  // These five layers are all flat on the same ground and only millimetres
+  // apart, which is a recipe for z-fighting — and it flickered while
+  // panning. The fix is to stop them arguing about depth at all: none of
+  // them WRITES depth, and an explicit renderOrder decides who covers whom,
+  // so it is a painter's algorithm among the markings. They still TEST
+  // depth, so a building in front still hides the road behind it.
+  ground.renderOrder = -1;
+  const markings: Array<readonly [Ring[], number, number, number, number]> = [
     [PATHS, 4.4, COLOUR.pathEdge, -0.34, 0],
     [PATHS, 2.8, COLOUR.path, -0.32, 0],
     [LANES, 6.5, COLOUR.lane, -0.26, 0],
     [ROADS, 13, COLOUR.road, -0.2, 60],
     [WATER, 14, COLOUR.water, -0.12, 220],
-  ] as const) {
+  ];
+  const markingMaterials: MeshBasicMaterial[] = [];
+  markings.forEach(([lines, width, colour, y, taper], layer) => {
     const merged = mergeRibbons(lines, width, y, taper);
-    if (merged) {
-      world.add(
-        new Mesh(merged, new MeshBasicMaterial({ color: colour, side: DoubleSide })),
-      );
-    }
-  }
+    if (!merged) return;
+    const mesh = new Mesh(
+      merged,
+      new MeshBasicMaterial({
+        color: colour,
+        side: DoubleSide,
+        transparent: true,
+        depthWrite: false,
+        // and a depth bias on top, so the markings never fight the ground
+        // plane itself either
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -(layer + 2),
+      }),
+    );
+    mesh.renderOrder = layer + 1;
+    markingMaterials.push(mesh.material as MeshBasicMaterial);
+    world.add(mesh);
+  });
 
   // every other building on campus, as one mesh — 240 draw calls would be
   // silly for something nobody can click
@@ -615,6 +643,9 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
     // Inside a building, the rest of campus is context, not competition —
     // it stays visible enough to say where you are and no more.
     sceneryMaterial.opacity = inside ? 0.18 : 1;
+    // the ground recedes with the rest of campus, or the path network is
+    // busier than the building you came here to look at
+    for (const material of markingMaterials) material.opacity = inside ? 0.3 : 1;
     sceneryEdgeMaterial.opacity = inside ? 0.08 : 0.55;
 
     for (const building of parts.values()) {
