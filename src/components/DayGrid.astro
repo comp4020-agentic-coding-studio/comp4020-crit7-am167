@@ -1,6 +1,7 @@
 ---
 import type { BookingRow, RoomRow } from "../lib/booking";
 import { roomUrl } from "../lib/links";
+import { swatchVars } from "../lib/palette";
 import type { Room } from "../lib/schema";
 import { SLOTS, slotTime } from "../lib/slots";
 
@@ -19,6 +20,8 @@ import { SLOTS, slotTime } from "../lib/slots";
 interface Props {
   rooms: Array<Room | RoomRow>;
   buildingSlug: string;
+  /** the building these rooms are in, which decides the grid's colour */
+  buildingCode: string;
   date: string;
   /** live bookings on this date, for these rooms */
   bookings: BookingRow[];
@@ -29,7 +32,8 @@ interface Props {
   caption?: string;
 }
 
-const { rooms, buildingSlug, date, bookings, pastBefore, userId, caption } = Astro.props;
+const { rooms, buildingSlug, buildingCode, date, bookings, pastBefore, userId, caption } =
+  Astro.props;
 
 const slots = Array.from({ length: SLOTS }, (_, i) => i);
 
@@ -70,7 +74,7 @@ const ticks = slots.filter((s) => s % 4 === 0);
 ---
 
 <div class="grid-scroll">
-  <table class="daygrid" data-daygrid data-date={date}>
+  <table class="daygrid" data-daygrid data-date={date} style={swatchVars(buildingCode)}>
     {caption && <caption>{caption}</caption>}
     <thead>
       <tr>

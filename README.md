@@ -17,10 +17,17 @@ results table, which means you already have to know that Marie Reay has small
 rooms and Chifley doesn't, and you can't tell at a glance that the whole of
 Hancock is heaving this afternoon.
 
-So the map is the app. Buildings are lit by how free they are, campus-wide, on
-the date you're looking at — one glance tells you where to walk. Everything
-below the map is the same information as a list, because a map is a terrible
-way to read a timetable and a good way to choose a place.
+So the map is the app. Every building carries its own colour — the same one on
+the map, on its card, down the side of its grid rows and across its floor
+plan — and how free it is on the date you're looking at shows as how saturated
+that colour is, plus a filled bar and a number. One glance tells you where to
+walk. Everything below the map is the same information as a list, because a map
+is a terrible way to read a timetable and a good way to choose a place.
+
+Splitting it that way is deliberate: **hue means which building, fill means how
+free it is.** Nobody has to tell ten colours apart to answer "is there a room" —
+that question is answered by a proportion and a percentage, which survive any
+kind of colour vision.
 
 ## What's real and what isn't
 
@@ -82,11 +89,12 @@ building lands inside the frame on a wide desktop canvas and on a narrow phone
 one. Labels are drawn in screen space so a building code is as legible at either
 size.
 
-**Colour never carries meaning alone.** Free, taken, yours and already-been are
-distinguished by hatching and by text a screen reader gets, not just by hue —
-because the automated accessibility check runs without a browser and can't see
-contrast, so that part is a judgement call I have to make rather than a test I
-can pass.
+**Colour never carries meaning alone.** Taken slots are hatched as well as
+filled, a slot you hold is inked rather than tinted, and every cell says what
+it is in text a screen reader reads out. Availability is a bar and a number
+before it is a colour. The automated accessibility check runs without a browser
+and can't see contrast at all, so this part is a judgement call I have to make
+rather than a test I can pass.
 
 **It renders on demand.** There's no unconditional animation loop. A frame is
 drawn when something changes — a camera flight, a hover, a booking arriving over

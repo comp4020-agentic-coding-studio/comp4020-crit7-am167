@@ -9,12 +9,12 @@ import {
   ExtrudeGeometry,
   Float32BufferAttribute,
   Fog,
-  GridHelper,
   Group,
   HemisphereLight,
   LineBasicMaterial,
   LineSegments,
   Mesh,
+  DoubleSide,
   MeshBasicMaterial,
   MeshStandardMaterial,
   PerspectiveCamera,
@@ -30,7 +30,8 @@ import {
   WebGLRenderer,
 } from "three";
 import type { Material, Object3D } from "three";
-import { BUILDINGS, ROADS, SCENERY, WATER, type Ring } from "../data/campus";
+import { BUILDINGS, PATHS, ROADS, SCENERY, WATER, type Ring } from "../data/campus";
+import { swatchFor } from "../lib/palette";
 
 // ANU Acton, extruded.
 //
@@ -71,15 +72,20 @@ export type SceneState = {
   }>;
 };
 
+// Daylight, on paper. The campus is lit rather than glowing: buildings you
+// can book carry their own identity colour (src/lib/palette.ts), everything
+// else is warm stone, and how free a building is shows as how saturated its
+// colour is rather than as a different hue.
 const COLOUR = {
-  ground: 0x090b0f,
-  scenery: 0x232b38,
-  sceneryEdge: 0x38445a,
-  road: 0x161c25,
-  water: 0x113b49,
-  free: 0x3ddbc4,
-  busy: 0x39414f,
-  mine: 0xffb224,
+  ground: 0xf2ede2,
+  scenery: 0xd2c9b4,
+  sceneryEdge: 0x9a9080,
+  road: 0xbeb39a,
+  path: 0xded5c0,
+  water: 0x8fc2d6,
+  /* what a fully-booked building fades towards */
+  spent: 0xcfc7b5,
+  mine: 0x1b1813,
 };
 
 /** A real storey is about 3.6 m. At the scale a whole campus fits on a
@@ -89,6 +95,8 @@ const STOREY = 8;
 /** world up, reused rather than reallocated per frame */
 const UP = /* @__PURE__ */ (() => new Vector3(0, 1, 0))();
 const ROOM_HEIGHT = 5;
+/** hover lifts a surface towards this rather than making it glow */
+const WHITE = /* @__PURE__ */ (() => new Color(0xffffff))();
 
 /** How far the floors drift apart in building mode. */
 const FAN = 11;
@@ -105,21 +113,18 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
 
   const scene = new Scene();
   scene.background = new Color(COLOUR.ground);
-  scene.fog = new Fog(COLOUR.ground, 900, 2600);
+  scene.fog = new Fog(COLOUR.ground, 1000, 3000);
 
   const camera = new PerspectiveCamera(42, 1, 1, 4000);
 
   // --- lights ------------------------------------------------------------
-  scene.add(new HemisphereLight(0xa8bcdb, 0x0a0f18, 2.1));
-  const key = new DirectionalLight(0xe6eeff, 2.4);
-  key.position.set(-380, 520, -240);
-  scene.add(key);
-  const fill = new DirectionalLight(0x6f8cb8, 0.9);
-  fill.position.set(320, 180, 420);
-  scene.add(fill);
-  const rim = new DirectionalLight(0x3ddbc4, 0.7);
-  rim.position.set(180, 90, -420);
-  scene.add(rim);
+  scene.add(new HemisphereLight(0xffffff, 0xd8cfbc, 2.6));
+  const sun = new DirectionalLight(0xfff6e2, 2.2);
+  sun.position.set(-380, 560, -220);
+  scene.add(sun);
+  const bounce = new DirectionalLight(0xdfe7f2, 0.85);
+  bounce.position.set(340, 190, 420);
+  scene.add(bounce);
 
   // --- static ground -----------------------------------------------------
   const world = new Group();
@@ -133,19 +138,23 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
   ground.position.y = -0.4;
   world.add(ground);
 
-  const grid = new GridHelper(2400, 24, 0x263042, 0x171e29);
-  grid.position.y = -0.3;
-  (grid.material as Material).transparent = true;
-  (grid.material as Material).opacity = 0.5;
-  world.add(grid);
-
+  // Ground markings, drawn bottom-up so a road crosses a footpath rather
+  // than the other way round, and each one a hair above the last so they
+  // don't z-fight on a flat plane.
+  // Ground markings, drawn bottom-up so a road crosses a footpath rather
+  // than the other way round, each a hair above the last so they don't
+  // z-fight. DoubleSide because a ribbon's winding depends on which way the
+  // way was drawn in OSM, and a back-facing road is an invisible one.
   for (const [lines, width, colour, y] of [
-    [ROADS, 7, COLOUR.road, -0.18],
-    [WATER, 9, COLOUR.water, -0.12],
+    [PATHS, 3, COLOUR.path, -0.3],
+    [ROADS, 12, COLOUR.road, -0.2],
+    [WATER, 12, COLOUR.water, -0.1],
   ] as const) {
     const merged = mergeRibbons(lines, width, y);
     if (merged) {
-      world.add(new Mesh(merged, new MeshBasicMaterial({ color: colour })));
+      world.add(
+        new Mesh(merged, new MeshBasicMaterial({ color: colour, side: DoubleSide })),
+      );
     }
   }
 
@@ -156,15 +165,15 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
   );
   const sceneryMaterial = new MeshStandardMaterial({
     color: COLOUR.scenery,
-    roughness: 0.82,
-    metalness: 0.05,
+    roughness: 0.95,
+    metalness: 0,
     transparent: true,
     opacity: 1,
   });
   const sceneryEdgeMaterial = new LineBasicMaterial({
     color: COLOUR.sceneryEdge,
     transparent: true,
-    opacity: 0.85,
+    opacity: 0.5,
   });
   if (sceneryGeometry) {
     world.add(new Mesh(sceneryGeometry, sceneryMaterial));
@@ -200,11 +209,9 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
       );
       if (!geometry) continue;
       const material = new MeshStandardMaterial({
-        color: COLOUR.busy,
-        roughness: 0.55,
-        metalness: 0.08,
-        emissive: new Color(COLOUR.free),
-        emissiveIntensity: 0,
+        color: new Color(swatchFor(building.code).hex),
+        roughness: 0.68,
+        metalness: 0,
         transparent: true,
         opacity: 1,
       });
@@ -217,7 +224,7 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
 
       const outline = new LineSegments(
         new EdgesGeometry(geometry, 25),
-        new LineBasicMaterial({ color: 0x5c6a80, transparent: true, opacity: 0.55 }),
+        new LineBasicMaterial({ color: 0x1b1813, transparent: true, opacity: 0.28 }),
       );
       outline.position.y = slab.position.y;
       group.add(outline);
@@ -590,9 +597,8 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
 
     // Inside a building, the rest of campus is context, not competition —
     // it stays visible enough to say where you are and no more.
-    sceneryMaterial.opacity = inside ? 0.28 : 1;
-    sceneryEdgeMaterial.opacity = inside ? 0.18 : 0.85;
-    (grid.material as Material).opacity = inside ? 0.12 : 0.5;
+    sceneryMaterial.opacity = inside ? 0.18 : 1;
+    sceneryEdgeMaterial.opacity = inside ? 0.08 : 0.55;
 
     for (const building of parts.values()) {
       const focused = state.mode === "building" && state.focus === building.slug;
@@ -600,28 +606,41 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
       const free = info?.free ?? 0.5;
       const dimmed = state.mode === "building" && !focused;
 
-      // A building at 59% free and one at 92% should not look the same.
-      // Squaring the ratio spreads the busy end of the range, where the
-      // difference is the one you actually care about.
+      // The building keeps its own identity colour; how free it is decides
+      // how much of that colour survives. A busy building fades towards
+      // stone, a free one is fully itself. Squaring the ratio spreads the
+      // busy end of the range, which is the end you care about.
       const heat = free ** 1.6;
+      const identity = new Color(swatchFor(building.code).hex);
       // Inside a building, the storey slabs are the floor you stand on, not
-      // the subject: they go quiet so the room boxes sitting on them are
-      // what your eye lands on.
-      const colour = new Color(COLOUR.busy).lerp(
-        new Color(info?.yours ? COLOUR.mine : COLOUR.free),
-        state.mode === "building" ? (focused ? 0.16 : 0.1) : 0.1 + heat * 0.9,
+      // the subject: they go pale so the room boxes on them are what your
+      // eye lands on.
+      // The floor is at 0.42, not 0: a fully-booked building still has to be
+      // recognisably ITS colour, or the identity the cards teach you stops
+      // matching the map. Busy reads as duller, never as a different
+      // building.
+      const colour = new Color(state.mode === "building" ? 0xffffff : COLOUR.spent).lerp(
+        identity,
+        state.mode === "building" ? (focused ? 0.3 : 0.1) : 0.42 + heat * 0.58,
       );
 
       building.slabs.forEach((slab, level) => {
         const material = slab.material as MeshStandardMaterial;
-        material.color.copy(colour);
-        material.emissive.setHex(info?.yours ? COLOUR.mine : COLOUR.free);
-        material.emissiveIntensity = dimmed ? 0.03 : focused ? 0.04 : 0.06 + heat * 0.7;
-        // the storey you're looking at stays solid; the ones above and below
-        // go translucent, so the fan reads as a cutaway rather than a stack
         const chosen = focused && level === state.floor;
-        material.opacity = dimmed ? 0.3 : focused && !chosen ? 0.42 : 1;
-        material.depthWrite = !dimmed && (chosen || !focused);
+
+        // On a light ground, "dim" cannot mean "transparent" — a pale thing
+        // on pale paper just disappears. The storeys you're not looking at
+        // stay solid and simply lose their colour; only the rest of campus
+        // goes see-through, and then only enough to sit behind the subject.
+        const shown = chosen
+          ? colour
+          : focused
+            ? new Color(COLOUR.ground).lerp(identity, 0.1)
+            : colour;
+        material.userData.base = shown.clone();
+        material.color.copy(shown);
+        material.opacity = dimmed ? 0.16 : 1;
+        material.depthWrite = !dimmed;
 
         // the fan: in building mode the focused building's storeys drift
         // apart so you can see into the one you're looking at
@@ -631,7 +650,7 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
         const outline = building.edges[level];
         if (outline) {
           outline.position.y = slab.position.y;
-          (outline.material as LineBasicMaterial).opacity = dimmed ? 0.12 : 0.55;
+          (outline.material as LineBasicMaterial).opacity = dimmed ? 0.05 : chosen ? 0.5 : 0.22;
         }
       });
 
@@ -644,21 +663,26 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
     paintHighlight();
   }
 
+  /** Hover, in daylight: the thing under the pointer lifts towards white
+   *  rather than glowing, because nothing else in this scene emits light. */
   function paintHighlight(): void {
     const data = hovered?.userData as { slug?: string } | undefined;
+
     for (const building of parts.values()) {
       const lit = data?.slug === building.slug && current?.mode === "campus";
       for (const slab of building.slabs) {
         const material = slab.material as MeshStandardMaterial;
-        material.emissiveIntensity = lit
-          ? 0.75
-          : (material.userData.base as number | undefined) ?? material.emissiveIntensity;
-        if (lit) material.userData.base ??= material.emissiveIntensity;
+        const base = material.userData.base as Color | undefined;
+        if (base) material.color.copy(base);
+        if (lit) material.color.lerp(WHITE, 0.32);
       }
     }
+
     for (const mesh of pickableRooms) {
       const material = (mesh as Mesh).material as MeshStandardMaterial;
-      material.emissiveIntensity = mesh === hovered ? 0.85 : (material.userData.base as number) ?? 0.2;
+      const base = material.userData.base as Color | undefined;
+      if (base) material.color.copy(base);
+      if (mesh === hovered) material.color.lerp(WHITE, 0.34);
     }
   }
 
@@ -671,24 +695,27 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
     pickableRooms = [];
     if (state.mode !== "building" || !state.focus) return;
 
-    const building = parts.get(state.focus);
-    if (!building) return;
+    const parent = parts.get(state.focus);
+    if (!parent) return;
+    const building = { code: parent.code };
     const y = state.floor * (STOREY + FAN) + 2.5 + STOREY * 0.94;
 
     for (const room of state.rooms) {
       const geometry = new BoxGeometry(room.w, ROOM_HEIGHT, room.d);
-      const tint = new Color(COLOUR.busy).lerp(
-        new Color(room.yours ? COLOUR.mine : COLOUR.free),
-        room.yours ? 0.95 : 0.05 + room.free ** 1.5 * 0.95,
-      );
+      // A room keeps its building's colour and loses saturation as it fills
+      // up; a room you hold is inked, which no hue in the palette is.
+      const tint = room.yours
+        ? new Color(COLOUR.mine)
+        : new Color(COLOUR.spent).lerp(
+            new Color(swatchFor(building.code).hex),
+            0.45 + room.free ** 1.5 * 0.55,
+          );
       const material = new MeshStandardMaterial({
         color: tint,
-        roughness: 0.4,
-        metalness: 0.05,
-        emissive: new Color(room.yours ? COLOUR.mine : COLOUR.free),
-        emissiveIntensity: room.yours ? 0.5 : 0.05 + room.free ** 1.5 * 0.55,
+        roughness: 0.5,
+        metalness: 0,
       });
-      material.userData.base = material.emissiveIntensity;
+      material.userData.base = tint.clone();
 
       const mesh = new Mesh(geometry, material);
       mesh.position.set(room.cx, y + ROOM_HEIGHT / 2, room.cz);
@@ -716,7 +743,8 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
           at: middle,
           radius: Math.hypot(building.radius, fanned / 2) + 18,
         };
-        const distance = solveDistance([sphere], middle, view.azimuth, elevation);
+        // a touch tighter than a perfect fit: the building is the subject
+        const distance = solveDistance([sphere], middle, view.azimuth, elevation) * 0.88;
         // look slightly above the chosen storey, not at the building's waist
         const look = new Vector3(
           building.centre.x,
@@ -887,13 +915,13 @@ function makeLabel(text: string): Sprite {
   const ctx = canvas.getContext("2d");
   if (ctx) {
     ctx.font = font;
-    ctx.fillStyle = "rgba(10,12,16,0.72)";
-    roundRect(ctx, 0, 0, canvas.width, canvas.height, 6 * scale);
+    ctx.fillStyle = "rgba(255,255,255,0.94)";
+    roundRect(ctx, 0, 0, canvas.width, canvas.height, 8 * scale);
     ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.22)";
-    ctx.lineWidth = 1 * scale;
+    ctx.strokeStyle = "rgba(27,24,19,0.22)";
+    ctx.lineWidth = 1.5 * scale;
     ctx.stroke();
-    ctx.fillStyle = "#e9edf5";
+    ctx.fillStyle = "#1b1813";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(text, canvas.width / 2, canvas.height / 2 + scale);

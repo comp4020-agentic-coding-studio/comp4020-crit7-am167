@@ -139,6 +139,7 @@ export type UserBooking = BookingRow & {
   roomKind: string;
   buildingName: string;
   buildingSlug: string;
+  buildingCode: string;
 };
 
 /** Someone's own bookings: what's ahead first, then what's been. */
@@ -160,6 +161,7 @@ export function bookingsForUser(userId: number): { upcoming: UserBooking[]; past
       roomKind: rooms.kind,
       buildingName: buildings.name,
       buildingSlug: buildings.slug,
+      buildingCode: buildings.code,
     })
     .from(bookings)
     .innerJoin(users, eq(users.id, bookings.userId))

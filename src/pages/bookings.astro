@@ -3,6 +3,7 @@ import Shell from "../components/Shell.astro";
 import { currentUser, nameOf } from "../lib/auth";
 import { bookingsForUser, errorMessage } from "../lib/booking";
 import { buildingUrl } from "../lib/links";
+import { swatchVars } from "../lib/palette";
 import { dateLabel, slotRangeLabel } from "../lib/slots";
 
 const user = currentUser(Astro.cookies);
@@ -57,7 +58,7 @@ const error =
           ) : (
             <ul class="rows">
               {upcoming.map((booking) => (
-                <li class="row">
+                <li class="row" style={swatchVars(booking.buildingCode)}>
                   <span class="when">
                     {dateLabel(booking.date)}
                     <br />
@@ -91,7 +92,7 @@ const error =
             <h2>Already been ({past.length})</h2>
             <ul class="rows">
               {past.slice(0, 20).map((booking) => (
-                <li class="row row-past">
+                <li class="row row-past" style={swatchVars(booking.buildingCode)}>
                   <span class="when">
                     {dateLabel(booking.date)}
                     <br />

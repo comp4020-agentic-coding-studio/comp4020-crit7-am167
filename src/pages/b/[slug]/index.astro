@@ -7,6 +7,7 @@ import Shell from "../../../components/Shell.astro";
 import { currentUser } from "../../../lib/auth";
 import { bookingsOn, buildingBySlug, errorMessage, roomsInBuilding } from "../../../lib/booking";
 import { buildingUrl } from "../../../lib/links";
+import { swatchVars } from "../../../lib/palette";
 import { SLOTS, currentSlot, dateLabel, isBookableDate, today } from "../../../lib/slots";
 
 const { slug } = Astro.params;
@@ -67,7 +68,7 @@ const error = errorMessage(params.get("error"));
 
   {error && <p class="notice notice-error">{error}</p>}
 
-  <div class="stack">
+  <div class="stack" style={swatchVars(building.code)}>
     <CampusScene focus={building.slug} floor={floor} date={date} />
 
     <section class="stack-sm">
@@ -124,6 +125,7 @@ const error = errorMessage(params.get("error"));
           <DayGrid
             rooms={rooms}
             buildingSlug={building.slug}
+            buildingCode={building.code}
             date={date}
             bookings={onThisFloor}
             pastBefore={pastBefore}

@@ -5,6 +5,7 @@ import Shell from "../components/Shell.astro";
 import { currentUser } from "../lib/auth";
 import { campusOverview, errorMessage } from "../lib/booking";
 import { buildingUrl, withQuery } from "../lib/links";
+import { swatchVars } from "../lib/palette";
 import { SLOTS, dateLabel, isBookableDate, slotTime, today } from "../lib/slots";
 
 const user = currentUser(Astro.cookies);
@@ -99,9 +100,7 @@ const error = errorMessage(params.get("error"));
       <div class="section-head">
         <h2>Buildings · {dateLabel(date)}</h2>
         <ul class="legend">
-          <li><span class="swatch swatch-free"></span> Rooms free</li>
-          <li><span class="swatch swatch-busy"></span> Fully booked</li>
-          <li><span class="swatch swatch-mine"></span> You have a room here</li>
+          <li class="muted">Each building has its own colour · the bar shows how free it is</li>
         </ul>
       </div>
 
@@ -123,19 +122,21 @@ const error = errorMessage(params.get("error"));
                     class="card"
                     href={buildingUrl(entry.building.slug, { date })}
                     data-building={entry.building.slug}
-                    style={`--free-pct:${pct}%`}
+                    style={`${swatchVars(entry.building.code)};--fill:${pct}%`}
                   >
-                    <div class="card-title">
+                    <div class="card-banner">
                       <span class="code">{entry.building.code}</span>
                       {entry.yours > 0 ? (
                         <span class="pill pill-mine">Yours</span>
                       ) : pct === 0 ? (
                         <span class="pill pill-full">Full</span>
                       ) : (
-                        <span class="pill pill-free">{pct}% free</span>
+                        <span class="pill">{pct}% free</span>
                       )}
                     </div>
-                    <p class="card-meta">{entry.building.name}</p>
+                    <p class="card-meta">
+                      <strong>{entry.building.name}</strong>
+                    </p>
                     <p class="card-meta muted">
                       {entry.matching} room{entry.matching === 1 ? "" : "s"} ·{" "}
                       {entry.building.levels} levels ·{" "}
@@ -143,6 +144,9 @@ const error = errorMessage(params.get("error"));
                         ? "nothing free today"
                         : `next free ${slotTime(entry.nextFree)}`}
                     </p>
+                    {/* the same figure as the pill above, as a proportion —
+                        so availability never depends on telling hues apart */}
+                    <span class="meter" aria-hidden="true" />
                   </a>
                 </li>
               );

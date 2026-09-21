@@ -6,6 +6,7 @@ import { currentUser } from "../../../lib/auth";
 import { bookingsOn, buildingBySlug, errorMessage, roomsInBuilding } from "../../../lib/booking";
 import { labelFor, type RoomKind } from "../../../lib/floorplan";
 import { buildingUrl, roomSlug, roomUrl } from "../../../lib/links";
+import { swatchVars } from "../../../lib/palette";
 import {
   MAX_SLOTS_PER_BOOKING,
   SLOTS,
@@ -99,7 +100,7 @@ const freeSlots =
     )
   }
 
-  <div class="stack">
+  <div class="stack" style={swatchVars(building.code)}>
     <section class="panel panel-pad stack-sm">
       <div class="section-head">
         <h2>{dateLabel(date)} · {freeSlots} of {SLOTS} half hours free</h2>
@@ -117,6 +118,7 @@ const freeSlots =
       <DayGrid
         rooms={[room]}
         buildingSlug={building.slug}
+        buildingCode={building.code}
         date={date}
         bookings={bookings}
         pastBefore={pastBefore}

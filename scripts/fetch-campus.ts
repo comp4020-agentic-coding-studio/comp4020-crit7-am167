@@ -11,8 +11,17 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-// overpass-api.de 406s on this client; the kumi mirror serves the same data.
-const ENDPOINT = "https://overpass.kumi.systems/api/interpreter";
+// Overpass is a free shared service run by volunteers, and every mirror
+// rate-limits. These all serve the whole planet, so a 429 from one is a
+// reason to ask the next rather than to give up.
+// Global instances only. Regional mirrors (overpass.osm.ch is
+// Switzerland-only) answer 200 with an empty element set for an Australian
+// bounding box, which looks exactly like "there are no footpaths here".
+const ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+];
 const BBOX = "-35.2830,149.1150,-35.2700,149.1250";
 
 // The Acton campus core, used as the projection origin so coordinates come
@@ -110,22 +119,60 @@ async function overpass(name: string, query: string): Promise<Element[]> {
     return (JSON.parse(readFileSync(cached, "utf8")) as { elements: Element[] }).elements;
   }
 
-  for (let attempt = 1; ; attempt++) {
-    const res = await fetch(ENDPOINT, { method: "POST", body: query });
-    if (res.ok) {
-      const text = await res.text();
-      mkdirSync(".cache", { recursive: true });
-      writeFileSync(cached, text);
-      return (JSON.parse(text) as { elements: Element[] }).elements;
+  let lastError = "no endpoint tried";
+  for (let round = 1; round <= 3; round++) {
+    for (const endpoint of ENDPOINTS) {
+      const host = new URL(endpoint).host;
+      let res: Response;
+      try {
+        res = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            // overpass-api.de answers 406 without these two: it wants a
+            // form body, an explicit Accept, and a named client.
+            "content-type": "application/x-www-form-urlencoded",
+            accept: "application/json",
+            "user-agent": "comp4020-crit7-campus-fetch/1.0 (ANU student project)",
+          },
+          body: new URLSearchParams({ data: query }),
+        });
+      } catch (error) {
+        lastError = `${host}: ${String(error)}`;
+        continue;
+      }
+
+      if (res.ok) {
+        const text = await res.text();
+        // a rate-limited or timed-out mirror answers 200 with an HTML notice
+        if (!text.trimStart().startsWith("{")) {
+          lastError = `${host}: non-JSON response (rate limited or query timed out)`;
+          continue;
+        }
+        const elements = (JSON.parse(text) as { elements: Element[] }).elements;
+        // An empty answer from a mirror that holds a different part of the
+        // world is indistinguishable from a real empty answer, and caching
+        // it bakes the mistake in. Every query here expects data.
+        if (elements.length === 0) {
+          lastError = `${host}: returned no elements (wrong region, or an extract)`;
+          console.log(`  ${name}: ${lastError}`);
+          continue;
+        }
+        mkdirSync(".cache", { recursive: true });
+        writeFileSync(cached, text);
+        console.log(`  ${name}: ${elements.length} from ${host}`);
+        return elements;
+      }
+
+      lastError = `${host}: ${res.status} ${res.statusText}`;
+      console.log(`  ${name}: ${lastError}`);
     }
-    // 429 (rate limited) and 504 (query slot busy) are both worth waiting out
-    if ((res.status !== 429 && res.status !== 504) || attempt >= 5) {
-      throw new Error(`overpass ${res.status} ${res.statusText}`);
-    }
-    const wait = 15 * attempt;
-    console.log(`  ${name}: ${res.status}, retrying in ${wait}s (attempt ${attempt}/5)`);
+
+    const wait = 30 * round;
+    console.log(`  ${name}: every mirror busy, waiting ${wait}s (round ${round}/3)`);
     await new Promise((resolve) => setTimeout(resolve, wait * 1000));
   }
+
+  throw new Error(`overpass: could not fetch ${name} — last was ${lastError}`);
 }
 
 // Equirectangular projection onto a local metre grid: x east, z south, so
@@ -222,7 +269,7 @@ function bounds(rings: Array<Array<[number, number]>>) {
 }
 
 async function main(): Promise<void> {
-  console.log(`fetching ANU Acton geometry from ${new URL(ENDPOINT).host}…`);
+  console.log("fetching ANU Acton geometry from OpenStreetMap…");
 
   const buildings = await overpass("buildings", `[out:json][timeout:90];
     ( way["building"](${BBOX}); relation["building"](${BBOX}); );
@@ -236,6 +283,17 @@ async function main(): Promise<void> {
     );
     out geom;`);
   console.log(`  ${context.length} context ways`);
+
+  // The footpaths are most of what makes a campus map legible — you walk
+  // between these buildings, you don't drive. Separate query: there are an
+  // order of magnitude more of them than roads, and Overpass times out if
+  // you ask for everything at once. `service` is deliberately excluded —
+  // car park aisles and loading lanes are the bulk of the cost and add
+  // nothing you would navigate by.
+  const paths = await overpass("paths", `[out:json][timeout:180];
+    way["highway"~"^(footway|path|pedestrian|steps|cycleway)$"](${BBOX});
+    out geom;`);
+  console.log(`  ${paths.length} paths`);
 
   const byName = new Map<string, Element[]>();
   for (const el of buildings) {
@@ -301,6 +359,22 @@ async function main(): Promise<void> {
   const water = lines((el) => el.tags?.waterway === "stream");
   const roads = lines((el) => Boolean(el.tags?.highway));
 
+  // Paths get a coarser simplification than roads, and the short stubs go:
+  // there are 800-odd of them, they render 2.6 m wide, and nobody navigates
+  // a campus overview by the exact curve of a footpath. Anything under 12 m
+  // is a kerb ramp or a doorway spur — bytes and draw calls for something
+  // invisible at this scale.
+  const footpaths = paths
+    .map((el) => (el.geometry ? simplify(el.geometry.map(project), 5) : []))
+    .filter((line) => line.length >= 2)
+    .filter((line) => {
+      let length = 0;
+      for (let i = 1; i < line.length; i++) {
+        length += Math.hypot(line[i][0] - line[i - 1][0], line[i][1] - line[i - 1][1]);
+      }
+      return length >= 12;
+    });
+
   const out = `// GENERATED by scripts/fetch-campus.ts — do not edit by hand.
 //
 // Real ANU Acton building footprints from OpenStreetMap, © OpenStreetMap
@@ -338,6 +412,9 @@ export const WATER: Ring[] = ${JSON.stringify(water)};
 /** Surrounding roads. */
 export const ROADS: Ring[] = ${JSON.stringify(roads)};
 
+/** Footpaths, steps and service lanes — how you actually cross campus. */
+export const PATHS: Ring[] = ${JSON.stringify(footpaths)};
+
 export const ATTRIBUTION = "© OpenStreetMap contributors";
 `;
 
@@ -345,7 +422,7 @@ export const ATTRIBUTION = "© OpenStreetMap contributors";
   const kb = (out.length / 1024).toFixed(0);
   console.log(
     `wrote src/data/campus.ts — ${bookable.length} bookable, ${scenery.length} scenery, ` +
-      `${water.length} water, ${roads.length} roads (${kb} kB)`,
+      `${water.length} water, ${roads.length} roads, ${footpaths.length} paths (${kb} kB)`,
   );
 }
 
