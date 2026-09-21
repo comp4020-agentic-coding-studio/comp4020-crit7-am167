@@ -15,8 +15,8 @@ import { SLOTS } from "../lib/slots";
 // a real navigation to a real URL, but the scene doesn't reboot — it flies
 // the camera in while the server re-renders the page around it.
 //
-// State reaches the scene as a JSON <script> the page re-renders each
-// navigation; src/scenes/mount.ts reads it on astro:page-load.
+// State reaches the scene as a JSON script element the page re-renders
+// each navigation; src/scenes/mount.ts reads it on astro:page-load.
 
 interface Props {
   date: string;
