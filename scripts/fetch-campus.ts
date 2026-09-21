@@ -257,6 +257,73 @@ function ringOf(el: Element): Array<[number, number]> | undefined {
   return ring.length >= 3 ? ring : undefined;
 }
 
+type Box = { minX: number; maxX: number; minZ: number; maxZ: number };
+
+/** Cut a polyline to a rectangle, returning the pieces that survive.
+ *  Cohen–Sutherland per segment, stitched back into runs so a road that
+ *  leaves and re-enters the box comes back as two lines, not one that
+ *  short-cuts across the gap. */
+function clipToBox(line: Array<[number, number]>, box: Box): Array<Array<[number, number]>> {
+  const out: Array<Array<[number, number]>> = [];
+  let run: Array<[number, number]> = [];
+
+  const inside = (p: [number, number]) =>
+    p[0] >= box.minX && p[0] <= box.maxX && p[1] >= box.minZ && p[1] <= box.maxZ;
+
+  /** where the segment a→b crosses the box edge, as a parameter in [0,1] */
+  const clipSegment = (a: [number, number], b: [number, number]) => {
+    let t0 = 0;
+    let t1 = 1;
+    const dx = b[0] - a[0];
+    const dz = b[1] - a[1];
+    const tests: Array<[number, number]> = [
+      [-dx, a[0] - box.minX],
+      [dx, box.maxX - a[0]],
+      [-dz, a[1] - box.minZ],
+      [dz, box.maxZ - a[1]],
+    ];
+    for (const [p, q] of tests) {
+      if (p === 0) {
+        if (q < 0) return undefined;
+        continue;
+      }
+      const r = q / p;
+      if (p < 0) {
+        if (r > t1) return undefined;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return undefined;
+        if (r < t1) t1 = r;
+      }
+    }
+    const at = (t: number): [number, number] => [round(a[0] + dx * t), round(a[1] + dz * t)];
+    return [at(t0), at(t1)] as const;
+  };
+
+  for (let i = 0; i < line.length - 1; i++) {
+    const piece = clipSegment(line[i], line[i + 1]);
+    if (!piece) {
+      if (run.length >= 2) out.push(run);
+      run = [];
+      continue;
+    }
+    const [from, to] = piece;
+    if (run.length === 0) run.push(from);
+    else if (run[run.length - 1][0] !== from[0] || run[run.length - 1][1] !== from[1]) {
+      if (run.length >= 2) out.push(run);
+      run = [from];
+    }
+    run.push(to);
+    // a segment that left the box ends this run
+    if (!inside(line[i + 1])) {
+      if (run.length >= 2) out.push(run);
+      run = [];
+    }
+  }
+  if (run.length >= 2) out.push(run);
+  return out;
+}
+
 function bounds(rings: Array<Array<[number, number]>>) {
   const xs = rings.flat().map((p) => p[0]);
   const zs = rings.flat().map((p) => p[1]);
@@ -290,6 +357,14 @@ async function main(): Promise<void> {
   // you ask for everything at once. `service` is deliberately excluded —
   // car park aisles and loading lanes are the bulk of the cost and add
   // nothing you would navigate by.
+  // Campus roads are a different OSM class from the arterials around it:
+  // Barry Drive is `primary`, the loop past Chifley is `service`. They want
+  // to look different too, so they're fetched and kept apart.
+  const lanes = await overpass("lanes", `[out:json][timeout:180];
+    way["highway"~"^(service|unclassified|living_street)$"](${BBOX});
+    out geom;`);
+  console.log(`  ${lanes.length} campus lanes`);
+
   const paths = await overpass("paths", `[out:json][timeout:180];
     way["highway"~"^(footway|path|pedestrian|steps|cycleway)$"](${BBOX});
     out geom;`);
@@ -350,30 +425,50 @@ async function main(): Promise<void> {
     .filter((b) => area(b.ring) >= 120)
     .map((b) => ({ ring: b.ring, levels: Math.min(b.levels, 8) }));
 
-  const lines = (predicate: (el: Element) => boolean) =>
-    context
+  // Where the drawn campus actually ends. Everything linear is clipped to
+  // this: without it Sullivans Creek and the arterials simply run off to
+  // the horizon, which reads as an unfinished map rather than an edge.
+  const drawn = bounds([...bookable.flatMap((b) => b.rings), ...scenery.map((b) => b.ring)]);
+  const CLIP = {
+    minX: drawn.minX - 40,
+    maxX: drawn.maxX + 40,
+    minZ: drawn.minZ - 40,
+    maxZ: drawn.maxZ + 40,
+  };
+
+  const lines = (source: Element[], predicate: (el: Element) => boolean, tolerance = 2) =>
+    source
       .filter(predicate)
-      .map((el) => (el.geometry ? simplify(el.geometry.map(project), 2) : []))
+      .flatMap((el) => (el.geometry ? clipToBox(simplify(el.geometry.map(project), tolerance), CLIP) : []))
       .filter((l) => l.length >= 2);
 
-  const water = lines((el) => el.tags?.waterway === "stream");
-  const roads = lines((el) => Boolean(el.tags?.highway));
+  // The creek is clipped tighter than the rest: at full extent it runs the
+  // whole bounding box and dominates the frame end to end.
+  const creekBox = {
+    minX: CLIP.minX + (CLIP.maxX - CLIP.minX) * 0.06,
+    maxX: CLIP.maxX - (CLIP.maxX - CLIP.minX) * 0.06,
+    minZ: CLIP.minZ + (CLIP.maxZ - CLIP.minZ) * 0.14,
+    maxZ: CLIP.maxZ - (CLIP.maxZ - CLIP.minZ) * 0.14,
+  };
+  const water = context
+    .filter((el) => el.tags?.waterway === "stream")
+    .flatMap((el) => (el.geometry ? clipToBox(simplify(el.geometry.map(project), 2), creekBox) : []))
+    .filter((l) => l.length >= 2);
+  const roads = lines(context, (el) => Boolean(el.tags?.highway));
+  const campusLanes = lines(lanes, () => true, 2);
 
   // Paths get a coarser simplification than roads, and the short stubs go:
   // there are 800-odd of them, they render 2.6 m wide, and nobody navigates
   // a campus overview by the exact curve of a footpath. Anything under 12 m
   // is a kerb ramp or a doorway spur — bytes and draw calls for something
   // invisible at this scale.
-  const footpaths = paths
-    .map((el) => (el.geometry ? simplify(el.geometry.map(project), 5) : []))
-    .filter((line) => line.length >= 2)
-    .filter((line) => {
-      let length = 0;
-      for (let i = 1; i < line.length; i++) {
-        length += Math.hypot(line[i][0] - line[i - 1][0], line[i][1] - line[i - 1][1]);
-      }
-      return length >= 12;
-    });
+  const footpaths = lines(paths, () => true, 5).filter((line) => {
+    let length = 0;
+    for (let i = 1; i < line.length; i++) {
+      length += Math.hypot(line[i][0] - line[i - 1][0], line[i][1] - line[i - 1][1]);
+    }
+    return length >= 12;
+  });
 
   const out = `// GENERATED by scripts/fetch-campus.ts — do not edit by hand.
 //
@@ -409,8 +504,11 @@ export const SCENERY: Array<{ ring: Ring; levels: number }> = ${JSON.stringify(s
 /** Sullivans Creek. */
 export const WATER: Ring[] = ${JSON.stringify(water)};
 
-/** Surrounding roads. */
+/** The arterials around campus — Barry Drive, Clunies Ross and friends. */
 export const ROADS: Ring[] = ${JSON.stringify(roads)};
+
+/** Roads inside campus: service loops, car park aisles, delivery lanes. */
+export const LANES: Ring[] = ${JSON.stringify(campusLanes)};
 
 /** Footpaths, steps and service lanes — how you actually cross campus. */
 export const PATHS: Ring[] = ${JSON.stringify(footpaths)};
@@ -422,7 +520,8 @@ export const ATTRIBUTION = "© OpenStreetMap contributors";
   const kb = (out.length / 1024).toFixed(0);
   console.log(
     `wrote src/data/campus.ts — ${bookable.length} bookable, ${scenery.length} scenery, ` +
-      `${water.length} water, ${roads.length} roads, ${footpaths.length} paths (${kb} kB)`,
+      `${water.length} water, ${roads.length} roads, ${campusLanes.length} lanes, ` +
+      `${footpaths.length} paths (${kb} kB)`,
   );
 }
 

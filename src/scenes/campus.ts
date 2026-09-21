@@ -30,7 +30,7 @@ import {
   WebGLRenderer,
 } from "three";
 import type { Material, Object3D } from "three";
-import { BUILDINGS, PATHS, ROADS, SCENERY, WATER, type Ring } from "../data/campus";
+import { BUILDINGS, LANES, PATHS, ROADS, SCENERY, WATER, type Ring } from "../data/campus";
 import { swatchFor } from "../lib/palette";
 
 // ANU Acton, extruded.
@@ -80,9 +80,15 @@ const COLOUR = {
   ground: 0xf2ede2,
   scenery: 0xd2c9b4,
   sceneryEdge: 0x9a9080,
-  road: 0xbeb39a,
-  path: 0xded5c0,
-  water: 0x8fc2d6,
+  /* arterials around campus — the widest, darkest tarmac */
+  road: 0xa89c82,
+  /* service loops inside campus — narrower, and warmer so they read as
+     "the road behind Chifley" rather than as part of Barry Drive */
+  lane: 0xbcb096,
+  /* footpaths: pale concrete, but with enough contrast to trace by eye */
+  path: 0xfdfaf2,
+  pathEdge: 0xcdc2aa,
+  water: 0x7fbdd6,
   /* what a fully-booked building fades towards */
   spent: 0xcfc7b5,
   mine: 0x1b1813,
@@ -145,12 +151,23 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
   // than the other way round, each a hair above the last so they don't
   // z-fight. DoubleSide because a ribbon's winding depends on which way the
   // way was drawn in OSM, and a back-facing road is an invisible one.
-  for (const [lines, width, colour, y] of [
-    [PATHS, 3, COLOUR.path, -0.3],
-    [ROADS, 12, COLOUR.road, -0.2],
-    [WATER, 12, COLOUR.water, -0.1],
+  // Ground markings, drawn bottom-up so the thing that should win a
+  // crossing is drawn last. Each sits a hair above the one below so they
+  // don't z-fight on a flat plane. DoubleSide because a ribbon's winding
+  // follows however the way was drawn in OSM, and a back-facing road is an
+  // invisible one.
+  //
+  // Footpaths get a casing — a slightly wider, darker ribbon underneath a
+  // pale one — which is how paper maps make a thin line readable without
+  // making it thick. A flat 3 px line on warm paper just disappears.
+  for (const [lines, width, colour, y, taper] of [
+    [PATHS, 4.4, COLOUR.pathEdge, -0.34, 0],
+    [PATHS, 2.8, COLOUR.path, -0.32, 0],
+    [LANES, 6.5, COLOUR.lane, -0.26, 0],
+    [ROADS, 13, COLOUR.road, -0.2, 60],
+    [WATER, 14, COLOUR.water, -0.12, 220],
   ] as const) {
-    const merged = mergeRibbons(lines, width, y);
+    const merged = mergeRibbons(lines, width, y, taper);
     if (merged) {
       world.add(
         new Mesh(merged, new MeshBasicMaterial({ color: colour, side: DoubleSide })),
@@ -832,12 +849,27 @@ function mergeExtrusions(
   return merged;
 }
 
-/** A polyline widened into a flat ribbon lying on the ground. */
-function ribbon(points: Ring, width: number, y: number): BufferGeometry | undefined {
+/** A polyline widened into a flat ribbon lying on the ground.
+ *
+ *  `taper` narrows the ribbon to nothing over that many metres at each end.
+ *  It exists for Sullivans Creek: a constant-width blue band running from
+ *  one edge of the canvas to the other reads as a river escaping the map,
+ *  where one that thins away reads as a river carrying on past it. Roads
+ *  get a gentler version of the same treatment. */
+function ribbon(points: Ring, width: number, y: number, taper = 0): BufferGeometry | undefined {
   if (points.length < 2) return undefined;
   const half = width / 2;
   const vertices: number[] = [];
   const indices: number[] = [];
+
+  // distance along the line to each point, for the taper
+  const along: number[] = [0];
+  for (let i = 1; i < points.length; i++) {
+    along.push(
+      along[i - 1] + Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]),
+    );
+  }
+  const total = along[along.length - 1];
 
   for (let i = 0; i < points.length; i++) {
     const previous = points[Math.max(0, i - 1)];
@@ -847,9 +879,11 @@ function ribbon(points: Ring, width: number, y: number): BufferGeometry | undefi
     const length = Math.hypot(dx, dz) || 1;
     dx /= length;
     dz /= length;
-    // normal in the ground plane
-    const nx = -dz * half;
-    const nz = dx * half;
+    // normal in the ground plane, narrowed towards either end
+    const ends = taper > 0 ? Math.min(1, Math.min(along[i], total - along[i]) / taper) : 1;
+    const scaled = half * (0.12 + 0.88 * ends);
+    const nx = -dz * scaled;
+    const nz = dx * scaled;
     vertices.push(points[i][0] + nx, y, points[i][1] + nz);
     vertices.push(points[i][0] - nx, y, points[i][1] - nz);
   }
@@ -866,9 +900,14 @@ function ribbon(points: Ring, width: number, y: number): BufferGeometry | undefi
   return geometry;
 }
 
-function mergeRibbons(lines: Ring[], width: number, y: number): BufferGeometry | undefined {
+function mergeRibbons(
+  lines: Ring[],
+  width: number,
+  y: number,
+  taper = 0,
+): BufferGeometry | undefined {
   const parts = lines
-    .map((line) => ribbon(line, width, y))
+    .map((line) => ribbon(line, width, y, taper))
     .filter((g): g is BufferGeometry => g !== undefined);
   if (parts.length === 0) return undefined;
   const merged = mergeGeometries(parts);
