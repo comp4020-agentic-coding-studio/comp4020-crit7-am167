@@ -185,3 +185,15 @@ Asked whether the bookings are in the database or hardcoded: they're in
 SQLite through Drizzle. `createBooking` checks for a clash and inserts in one
 transaction, and the seed only ever adds demo bookings for dates that don't
 have any yet, never deleting, so a real booking survives restarts.
+
+**Ground floor is GF.** The user flagged the level numbering. It was 0-based
+already (Australian convention: ground, then 1, 2, 3), but the 3D tags hung
+in the gap above each storey's roof, and from the camera's angle the storey
+above covers that gap. So every tag read one storey high: the ground floor
+looked unlabelled and "L0" looked like the first floor up. Tags are now
+pinned half way up their own storey, on the building's front corner, and
+re-placed every frame so they ride the fan and follow an orbit. Then the
+label itself: "the tag shows as L0, should be GF". `src/lib/levels.ts` now
+names levels in one place: GF, L1, L2 on tags and chips, "ground floor" /
+"level 2" in text. Storey numbers in the data and room codes (0.01) are
+unchanged.

@@ -1,6 +1,7 @@
 ---
 import type { BookingRow, RoomRow } from "../lib/booking";
 import { labelFor, type RoomKind } from "../lib/floorplan";
+import { levelName } from "../lib/levels";
 import { roomUrl } from "../lib/links";
 import type { Building, Room, User } from "../lib/schema";
 import {
@@ -63,7 +64,7 @@ const here = roomUrl(building.slug, room.code, { date });
 >
   <header class="roomdialog-head">
     <div class="roomdialog-title">
-      <p class="roomdialog-where">{building.name} · level {room.floor}</p>
+      <p class="roomdialog-where">{building.name} · {levelName(room.floor)}</p>
       <h1 id="room-title" class="code" tabindex="-1">{room.code}</h1>
       <p class="roomdialog-what">
         {labelFor(room.kind as RoomKind)} · seats {room.capacity}
@@ -71,7 +72,7 @@ const here = roomUrl(building.slug, room.code, { date });
     </div>
     <a class="btn btn-quiet btn-sm roomdialog-close" href={closeHref} data-dialog-close>
       <span aria-hidden="true">&#x2715;</span>
-      <span class="visually-hidden">Close {room.code}, back to level {room.floor}</span>
+      <span class="visually-hidden">Close {room.code}, back to the {levelName(room.floor)}</span>
     </a>
   </header>
 

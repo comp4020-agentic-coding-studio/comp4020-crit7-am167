@@ -31,6 +31,7 @@ import {
 } from "three";
 import type { Material, Object3D } from "three";
 import { BUILDINGS, LANES, PATHS, ROADS, SCENERY, WATER, type Ring } from "../data/campus";
+import { levelTag, levelTitle } from "../lib/levels";
 import { swatchFor } from "../lib/palette";
 
 // ANU Acton, extruded — and the whole app's stage.
@@ -635,6 +636,7 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
 
     applyOffset();
     applyCamera();
+    placeLevelTags();
     paintHighlight();
     renderer.render(scene, camera);
     if (!drawn) {
@@ -751,8 +753,8 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
     if (!building) return "";
     if (current?.mode === "building" && data.slug === current.focus) {
       const level = current.levels.find((entry) => entry.level === data.level);
-      if (!level) return `Level ${data.level}`;
-      return `Level ${level.level} · ${level.rooms} room${level.rooms === 1 ? "" : "s"} · ${Math.round(level.free * 100)}% free`;
+      if (!level) return levelTitle(data.level ?? 0);
+      return `${levelTitle(level.level)} · ${level.rooms} room${level.rooms === 1 ? "" : "s"} · ${Math.round(level.free * 100)}% free`;
     }
     const info = current?.buildings.find((entry) => entry.slug === building.slug);
     return info && current?.mode === "campus"
@@ -1025,12 +1027,42 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
     if (!building) return;
     for (const entry of state.levels) {
       const text =
-        entry.rooms === 0 ? `L${entry.level}` : `L${entry.level} · ${Math.round(entry.free * 100)}%`;
+        entry.rooms === 0
+          ? levelTag(entry.level)
+          : `${levelTag(entry.level)} · ${Math.round(entry.free * 100)}%`;
       const tag = makeLabel(text, 0.03);
-      // just above the storey's roof, in the gap the fan opens, so it
-      // reads as sitting on that floor rather than floating between two
-      tag.position.set(building.centre.x, plateTop(entry.level) + 2.5, building.centre.z);
+      tag.userData.level = entry.level;
       levelTags.add(tag);
+    }
+    placeLevelTags();
+  }
+
+  /** Pin each level's tag to its own storey: half way up it, on the corner
+   *  of the building nearest the camera. Anywhere inside the footprint, a
+   *  tag gets drawn over whichever storey is in front of it from this angle
+   *  — tags hung in the gap above each roof read one storey high, so the
+   *  ground floor looked unlabelled and "L0" looked like the first floor
+   *  up. Run every frame, so the tags ride the fan as it opens and follow
+   *  the front corner round as the visitor orbits. */
+  function placeLevelTags(): void {
+    if (current?.mode !== "building" || !current.focus || levelTags.children.length === 0) return;
+    const building = parts.get(current.focus);
+    if (!building) return;
+    const dx = camera.position.x - building.centre.x;
+    const dz = camera.position.z - building.centre.z;
+    let front = building.plan[0];
+    let reach = -Infinity;
+    for (const point of building.plan) {
+      const along = (point[0] - building.centre.x) * dx + (point[1] - building.centre.z) * dz;
+      if (along > reach) {
+        reach = along;
+        front = point;
+      }
+    }
+    for (const tag of levelTags.children) {
+      const slab = building.slabs[tag.userData.level as number];
+      if (!slab || !front) continue;
+      tag.position.set(front[0], slab.position.y + STOREY * 0.47, front[1]);
     }
   }
 
@@ -1188,8 +1220,10 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
       // against the whole fan rather than guessed from the footprint.
       const fanned = building.levels * (STOREY + FAN);
       const middle = new Vector3(building.centre.x, fanned / 2, building.centre.z);
+      // room at the bottom for the ground floor's tag, which hangs off the
+      // front corner of the lowest storey
       const sphere = { at: middle, radius: Math.hypot(building.radius, fanned / 2) + 14 };
-      const distance = solveDistance([sphere], middle, view.azimuth, FANNED) * 0.9;
+      const distance = solveDistance([sphere], middle, view.azimuth, FANNED) * 0.97;
       flyTo(middle, distance, FANNED, ms, view.azimuth, steer);
       return;
     }

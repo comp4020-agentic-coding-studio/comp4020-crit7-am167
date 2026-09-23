@@ -1,6 +1,7 @@
 ---
 import { bookingsOn, levelsOf, roomsInBuilding } from "../lib/booking";
 import { labelFor, type RoomKind } from "../lib/floorplan";
+import { levelName, levelTag, levelTitle } from "../lib/levels";
 import { buildingUrl, roomSlug, roomUrl } from "../lib/links";
 import type { Building, User } from "../lib/schema";
 import { SLOTS, currentSlot, dateLabel, today } from "../lib/slots";
@@ -60,15 +61,15 @@ const pct = (free: number, capacity: number) => Math.round((free / Math.max(1, c
 const Heading = primary ? "h1" : "h2";
 ---
 
-<MapPanel label={`${building.name}, level ${floor}`} noun="rooms" folded={!primary}>
+<MapPanel label={`${building.name}, ${levelName(floor)}`} noun="rooms" folded={!primary}>
   <Fragment slot="head">
     <ol class="crumbs">
       <li><a href={`/?date=${date}`}>Campus</a></li>
       <li><a href={buildingUrl(building.slug, { date })}>{building.name}</a></li>
-      <li aria-current="page">Level {floor}</li>
+      <li aria-current="page">{levelTitle(floor)}</li>
     </ol>
     <Heading class="mappanel-title">
-      {building.name}, level {floor}
+      {building.name}, {levelName(floor)}
     </Heading>
     <p class="mappanel-sub">
       {rooms.length} room{rooms.length === 1 ? "" : "s"}
@@ -82,7 +83,7 @@ const Heading = primary ? "h1" : "h2";
             href={buildingUrl(building.slug, { date, floor: entry.level })}
             aria-current={entry.level === floor ? "page" : undefined}
           >
-            L{entry.level}
+            {levelTag(entry.level)}
             <span class="visually-hidden">
               , {entry.rooms} rooms, {pct(entry.free, entry.capacity)}% free
             </span>

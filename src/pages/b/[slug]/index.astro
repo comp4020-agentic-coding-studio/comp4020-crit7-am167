@@ -6,6 +6,7 @@ import MapPanel from "../../../components/MapPanel.astro";
 import Shell from "../../../components/Shell.astro";
 import { currentUser } from "../../../lib/auth";
 import { buildingBySlug, errorMessage, levelsOf } from "../../../lib/booking";
+import { levelName, levelTag } from "../../../lib/levels";
 import { buildingUrl } from "../../../lib/links";
 import { swatchVars } from "../../../lib/palette";
 import { dateLabel, isBookableDate, today } from "../../../lib/slots";
@@ -37,7 +38,7 @@ const error = errorMessage(params.get("error"));
 ---
 
 <Shell
-  title={`${building.name}${floor === undefined ? "" : `, level ${floor}`} · ANU Room Booking`}
+  title={`${building.name}${floor === undefined ? "" : `, ${levelName(floor)}`} · ANU Room Booking`}
   current="map"
   user={user ?? undefined}
   layout="map"
@@ -87,7 +88,7 @@ const error = errorMessage(params.get("error"));
                   data-map-hover={`level:${entry.level}`}
                   style={`--fill:${pct(entry.free, entry.capacity)}%`}
                 >
-                  <b class="level-name code">L{entry.level}</b>
+                  <b class="level-name code">{levelTag(entry.level)}</b>
                   <span class="level-meta">
                     {entry.rooms} room{entry.rooms === 1 ? "" : "s"}
                   </span>
