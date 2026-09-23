@@ -3,6 +3,7 @@ import { ClientRouter } from "astro:transitions";
 import { ATTRIBUTION } from "../data/campus";
 import { nameOf } from "../lib/auth";
 import type { User } from "../lib/schema";
+import { chosenTheme } from "../lib/theme";
 import "../styles.css";
 
 // Every page's frame: head, the one nav landmark the invariants look for,
@@ -16,6 +17,10 @@ import "../styles.css";
 // The map pages use the "map" layout: the map fills the window under the
 // masthead and nothing scrolls, so there's no page footer to scroll down to
 // — the attribution moves into the map's corner instead (MapFrame.astro).
+//
+// Light or dark follows the device until someone picks one with the
+// masthead's switch (src/lib/theme.ts); a pick is rendered here as
+// `data-theme`, so the page arrives in it.
 
 interface Props {
   title: string;
@@ -45,14 +50,16 @@ const initials = user
       .slice(0, 2)
       .toUpperCase()
   : "";
+
+const theme = chosenTheme(Astro.cookies);
 ---
 
 <!doctype html>
-<html lang="en-AU">
+<html lang="en-AU" data-theme={theme}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
       content="ANU Room Booking — find and book a room at ANU Acton on a live campus map, floor by floor."
@@ -83,6 +90,39 @@ const initials = user
         <a href="/readme/" aria-current={current === "about" ? "page" : undefined}>About</a>
       </nav>
       <span class="spacer"></span>
+      {/* Both ways are always here; the stylesheet shows whichever isn't the
+          theme on screen, which it knows even when the server doesn't (a
+          device set to dark, no choice made yet). */}
+      <form method="post" action="/api/theme" class="theme-switch">
+        <input type="hidden" name="next" value={next} />
+        <button
+          class="btn btn-quiet btn-sm btn-icon theme-to-dark"
+          type="submit"
+          name="theme"
+          value="dark"
+          aria-label="Switch to dark mode"
+          title="Switch to dark mode"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M20.5 14.6A8.5 8.5 0 0 1 9.4 3.5a8.5 8.5 0 1 0 11.1 11.1Z" />
+          </svg>
+        </button>
+        <button
+          class="btn btn-quiet btn-sm btn-icon theme-to-light"
+          type="submit"
+          name="theme"
+          value="light"
+          aria-label="Switch to light mode"
+          title="Switch to light mode"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="4.2" />
+            <path
+              d="M12 2v2.6M12 19.4V22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M2 12h2.6M19.4 12H22M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"
+            />
+          </svg>
+        </button>
+      </form>
       {
         user ? (
           <form method="post" action="/api/session" class="whoami">
@@ -121,3 +161,29 @@ const initials = user
     }
   </body>
 </html>
+
+<script>
+  import { THEME_COOKIE, THEME_MAX_AGE, isTheme } from "../lib/theme";
+
+  // With script, switching needn't be a round trip: write the cookie the
+  // server would have, re-theme in place, and tell the map (src/scenes/
+  // mount.ts), which paints its own colours. Capture phase, so this runs
+  // before the view-transition router would turn the POST into a navigation.
+  document.addEventListener(
+    "submit",
+    (event) => {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement) || !form.matches(".theme-switch")) return;
+      const theme = (event.submitter as HTMLButtonElement | null)?.value;
+      if (!isTheme(theme)) return;
+      event.preventDefault();
+      const secure = location.protocol === "https:" ? ";secure" : "";
+      document.cookie = `${THEME_COOKIE}=${theme};path=/;max-age=${THEME_MAX_AGE};samesite=lax${secure}`;
+      document.documentElement.dataset.theme = theme;
+      window.dispatchEvent(new CustomEvent("theme:change"));
+      // the button just pressed has gone; keep focus on the switch
+      form.querySelector<HTMLButtonElement>(`button:not([value="${theme}"])`)?.focus();
+    },
+    true,
+  );
+</script>

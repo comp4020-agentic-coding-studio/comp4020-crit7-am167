@@ -12,36 +12,68 @@
    edge of its rows in the panel, across its floor plan and its room dialog.
    Availability is never a hue — it is a painted proportion and a number, so
    it reads the same whatever a person's colour vision.
+
+   Dark mode is the same page at night, not a second design: every colour
+   is a token written light-dark(day, night), and which half applies is
+   the root's color-scheme — the device's setting, unless someone has
+   picked one (data-theme, from src/lib/theme.ts). The buildings keep their
+   hues, lifted so they still stand out from a dark ground (palette.ts).
 --------------------------------------------------------------------------- */
 
 :root {
-  /* ANU's anchors: near-black and gold, on warm paper */
-  --paper: #fcfaf6;
-  --card: #ffffff;
-  --paper-2: #f5f1e8;
-  --ink: #1b1813;
-  --ink-2: #575145;
-  --ink-3: #857d6e;
+  /* ANU's anchors: near-black and gold, on warm paper — or, at night, warm
+     near-black paper with cream ink */
+  --paper: light-dark(#fcfaf6, #14120e);
+  --card: light-dark(#ffffff, #1e1b16);
+  --paper-2: light-dark(#f5f1e8, #262219);
+  --paper-3: light-dark(#efe9dc, #2e2920);
+  --ink: light-dark(#1b1813, #f1ece2);
+  --ink-2: light-dark(#575145, #bdb5a6);
+  --ink-3: light-dark(#857d6e, #9d9483);
+  /* ink that sits ON --ink (a room you hold, your bookings pill) */
+  --on-ink: light-dark(#ffffff, #1b1813);
 
-  --line: rgba(27, 24, 19, 0.12);
-  --line-2: rgba(27, 24, 19, 0.22);
+  --line: light-dark(rgba(27, 24, 19, 0.12), rgba(241, 236, 226, 0.12));
+  --line-2: light-dark(rgba(27, 24, 19, 0.22), rgba(241, 236, 226, 0.24));
 
   /* ANU gold, and the deeper gold for text on pale ground */
   --gold: #f0c75e;
-  --gold-deep: #9a6a05;
+  --gold-deep: light-dark(#9a6a05, #f0c75e);
+  --on-gold: #2c2003;
 
   /* "somebody else has it", in a neutral that is no building's identity */
-  --taken: #cdc5b4;
+  --taken: light-dark(#cdc5b4, #4a4439);
+  /* the flat "already been" of a day that has passed */
+  --gone: light-dark(#e8e2d5, #2e2a22);
+  /* the track an availability meter is painted along */
+  --track: light-dark(#e6dfd1, #332e25);
+  --track-2: light-dark(#f1ebdf, #28241d);
+
+  --link: light-dark(#0b5c93, #7fb8e6);
+  --link-hover: light-dark(#08466f, #a8d0f0);
+  --danger: light-dark(#c8102e, #f0566b);
+  --danger-wash: light-dark(#fdf0f2, #3a2024);
+  --ok: light-dark(#0e8a5f, #3cb98a);
+  --ok-wash: light-dark(#eefaf4, #1c3027);
+
+  /* the map's ground, which the WebGL scene paints to match */
+  --scene: light-dark(#f2ede2, #1a1813);
+  /* a code block: dark on either ground */
+  --pre: light-dark(#1b1813, #0c0b08);
+  --pre-ink: #f4f1ea;
 
   /* fallbacks; anything belonging to a building overrides these */
-  --hue: #1268b3;
-  --hue-wash: #dde9f6;
-  --on-hue: #ffffff;
+  --hue: light-dark(#1268b3, #5a9fe2);
+  --hue-wash: light-dark(#dde9f6, #2a353f);
+  --on-hue: light-dark(#ffffff, #1a1a1a);
 
   --radius: 12px;
   --radius-sm: 8px;
-  --shadow: 0 1px 2px rgba(27, 24, 19, 0.06), 0 10px 26px -18px rgba(27, 24, 19, 0.45);
-  --shadow-lift: 0 2px 6px rgba(27, 24, 19, 0.08), 0 18px 36px -20px rgba(27, 24, 19, 0.5);
+  --shade: light-dark(rgba(27, 24, 19, 0.06), rgba(0, 0, 0, 0.3));
+  --shade-deep: light-dark(rgba(27, 24, 19, 0.45), rgba(0, 0, 0, 0.7));
+  --shadow: 0 1px 2px var(--shade), 0 10px 26px -18px var(--shade-deep);
+  --shadow-lift: 0 2px 6px var(--shade), 0 18px 36px -20px var(--shade-deep);
+  --scroll-shade: light-dark(rgba(27, 24, 19, 0.16), rgba(0, 0, 0, 0.55));
 
   --gap: clamp(0.9rem, 2vw, 1.5rem);
   --shell: 90rem;
@@ -49,7 +81,15 @@
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
 
+  color-scheme: light dark;
+}
+
+:root[data-theme="light"] {
   color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 *,
@@ -77,12 +117,12 @@ img {
 }
 
 :where(a) {
-  color: #0b5c93;
+  color: var(--link);
   text-underline-offset: 0.16em;
 }
 
 :where(a):hover {
-  color: #08466f;
+  color: var(--link-hover);
 }
 
 :focus-visible {
@@ -103,7 +143,7 @@ img {
   align-items: center;
   padding: 0.65rem clamp(0.9rem, 3vw, 1.6rem);
   padding-top: calc(0.65rem + env(safe-area-inset-top, 0px));
-  background: rgba(252, 250, 246, 0.9);
+  background: color-mix(in srgb, var(--paper) 90%, transparent);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--line);
 }
@@ -161,12 +201,52 @@ img {
 
 .masthead nav a[aria-current="page"] {
   background: var(--gold);
-  color: #2c2003;
+  color: var(--on-gold);
   font-weight: 650;
 }
 
 .masthead .spacer {
   flex: 1 1 auto;
+}
+
+/* light/dark: both buttons are in the page, and whichever is the theme
+   already on screen is hidden */
+.theme-switch {
+  display: flex;
+}
+
+.btn-icon {
+  width: 2.15rem;
+  padding: 0;
+}
+
+.btn-icon svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.theme-switch .theme-to-light,
+:root[data-theme="dark"] .theme-switch .theme-to-dark {
+  display: none;
+}
+
+:root[data-theme="dark"] .theme-switch .theme-to-light {
+  display: inline-flex;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-switch .theme-to-dark {
+    display: none;
+  }
+
+  :root:not([data-theme="light"]) .theme-switch .theme-to-light {
+    display: inline-flex;
+  }
 }
 
 .whoami {
@@ -194,8 +274,8 @@ img {
   width: 2.15rem;
   height: 2.15rem;
   border-radius: 50%;
-  background: var(--ink);
-  color: var(--gold);
+  background: light-dark(var(--ink), var(--gold));
+  color: light-dark(var(--gold), var(--on-gold));
   font-size: 0.78rem;
   font-weight: 750;
   letter-spacing: 0.02em;
@@ -214,9 +294,16 @@ img {
     order: 2;
   }
 
+  /* the nav's row has room to spare, and the brand's has none, so the
+     light/dark switch rides at the end of the nav */
   .masthead nav {
     order: 3;
-    flex-basis: 100%;
+    /* the whole row but the switch (2.15rem) and the gap before it */
+    flex: 0 0 calc(100% - 3.05rem);
+  }
+
+  .masthead .theme-switch {
+    order: 4;
   }
 
   /* the full name stays for a screen reader; the eye gets initials */
@@ -374,7 +461,7 @@ textarea {
   font-weight: 600;
   cursor: pointer;
   text-decoration: none;
-  box-shadow: 0 1px 2px rgba(27, 24, 19, 0.06);
+  box-shadow: 0 1px 2px var(--shade);
   transition:
     background 120ms ease,
     border-color 120ms ease,
@@ -384,20 +471,20 @@ textarea {
 .btn:hover {
   color: var(--ink);
   border-color: var(--ink-3);
-  box-shadow: 0 2px 8px rgba(27, 24, 19, 0.1);
+  box-shadow: 0 2px 8px var(--shade);
 }
 
 .btn-primary {
   background: var(--gold);
   border-color: #d8ab3c;
-  color: #2c2003;
+  color: var(--on-gold);
   font-weight: 680;
 }
 
 .btn-primary:hover {
   background: #f6d27a;
   border-color: #c99c2c;
-  color: #2c2003;
+  color: var(--on-gold);
 }
 
 .btn-quiet {
@@ -413,9 +500,9 @@ textarea {
 }
 
 .btn-danger:hover {
-  border-color: #c8102e;
-  color: #c8102e;
-  background: #fbe1e5;
+  border-color: var(--danger);
+  color: var(--danger);
+  background: var(--danger-wash);
 }
 
 .btn-sm {
@@ -499,23 +586,23 @@ select {
 }
 
 .notice-error {
-  background: #fdf0f2;
-  border-left-color: #c8102e;
+  background: var(--danger-wash);
+  border-left-color: var(--danger);
 }
 
 .notice-error::before {
   content: "!";
-  color: #c8102e;
+  color: var(--danger);
 }
 
 .notice-ok {
-  background: #eefaf4;
-  border-left-color: #0e8a5f;
+  background: var(--ok-wash);
+  border-left-color: var(--ok);
 }
 
 .notice-ok::before {
   content: "\2713";
-  color: #0e8a5f;
+  color: var(--ok);
 }
 
 /* --- legend -------------------------------------------------------------- */
@@ -565,7 +652,7 @@ select {
 
 /* the flat "already been" of a level's day strips */
 .swatch-gone {
-  background: #e8e2d5;
+  background: var(--gone);
   border-color: transparent;
 }
 
@@ -607,7 +694,11 @@ select {
   position: absolute;
   inset: 0;
   border-radius: 2px;
-  background: repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.28) 0 2px, transparent 2px 5px);
+  background: repeating-linear-gradient(
+    -45deg,
+    light-dark(rgba(255, 255, 255, 0.28), rgba(0, 0, 0, 0.22)) 0 2px,
+    transparent 2px 5px
+  );
 }
 
 .slot[data-state="mine"] {
@@ -617,7 +708,7 @@ select {
 }
 
 .slot[data-state="past"] {
-  background: repeating-linear-gradient(-45deg, #e8e2d5 0 3px, var(--paper) 3px 7px);
+  background: repeating-linear-gradient(-45deg, var(--gone) 0 3px, var(--paper) 3px 7px);
   border-color: transparent;
   cursor: not-allowed;
 }
@@ -683,7 +774,7 @@ select {
 }
 
 .daybar i[data-state="past"] {
-  background: #e8e2d5;
+  background: var(--gone);
   box-shadow: none;
 }
 
@@ -749,7 +840,7 @@ select {
   height: 0.5rem;
   margin-top: 0.75rem;
   border-radius: 999px;
-  background: repeating-linear-gradient(-45deg, #e6dfd1 0 3px, #f1ebdf 3px 7px);
+  background: repeating-linear-gradient(-45deg, var(--track) 0 3px, var(--track-2) 3px 7px);
   position: relative;
   overflow: hidden;
 }
@@ -783,7 +874,7 @@ select {
 .pill-mine {
   background: var(--ink);
   border-color: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 
 .tags {
@@ -815,7 +906,7 @@ select {
   border-left: 5px solid var(--hue);
   border-radius: var(--radius-sm);
   background: var(--card);
-  box-shadow: 0 1px 2px rgba(27, 24, 19, 0.05);
+  box-shadow: 0 1px 2px var(--shade);
 }
 
 .row-past {
@@ -885,7 +976,7 @@ select {
 }
 
 .fp-shell {
-  fill: #ffffff;
+  fill: var(--card);
   stroke: var(--line-2);
   stroke-width: 1;
   stroke-linejoin: round;
@@ -894,7 +985,7 @@ select {
 .fp-room rect {
   fill: var(--hue);
   fill-opacity: var(--tint, 0.5);
-  stroke: rgba(255, 255, 255, 0.85);
+  stroke: color-mix(in srgb, var(--card) 85%, transparent);
   stroke-width: 0.3;
   transition: fill-opacity 130ms ease;
 }
@@ -964,7 +1055,7 @@ select {
 .scene {
   position: relative;
   overflow: hidden;
-  background: #f2ede2;
+  background: var(--scene);
 }
 
 .scene canvas {
@@ -999,7 +1090,7 @@ select {
   max-width: calc(100% - 9rem);
   padding: 0.32rem 0.7rem;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.95);
+  background: color-mix(in srgb, var(--card) 95%, transparent);
   border: 1px solid var(--line-2);
   box-shadow: var(--shadow);
   font-size: 0.82rem;
@@ -1020,7 +1111,7 @@ select {
 }
 
 .scene-tools .btn {
-  background: rgba(255, 255, 255, 0.95);
+  background: color-mix(in srgb, var(--card) 95%, transparent);
 }
 
 .map-credit {
@@ -1103,7 +1194,7 @@ select {
 
 .mappanel-toggle:hover {
   color: var(--ink);
-  background: #efe9dc;
+  background: var(--paper-3);
 }
 
 .mappanel[data-shown="open"] .when-closed,
@@ -1386,7 +1477,7 @@ select {
     max-width: calc(100% - 1.5rem);
     padding: 0.1rem 0.5rem;
     border-radius: 999px;
-    background: rgba(252, 250, 246, 0.85);
+    background: color-mix(in srgb, var(--paper) 85%, transparent);
     font-size: 0.68rem;
   }
 
@@ -1414,11 +1505,11 @@ select {
     overflow-y: auto;
     overscroll-behavior: contain;
     background:
-      linear-gradient(var(--card) 30%, rgba(255, 255, 255, 0)) top / 100% 1.6rem no-repeat local,
-      linear-gradient(rgba(255, 255, 255, 0), var(--card) 70%) bottom / 100% 1.6rem no-repeat local,
-      radial-gradient(farthest-side at 50% 0, rgba(27, 24, 19, 0.16), transparent) top / 100% 0.7rem
+      linear-gradient(var(--card) 30%, transparent) top / 100% 1.6rem no-repeat local,
+      linear-gradient(transparent, var(--card) 70%) bottom / 100% 1.6rem no-repeat local,
+      radial-gradient(farthest-side at 50% 0, var(--scroll-shade), transparent) top / 100% 0.7rem
         no-repeat scroll,
-      radial-gradient(farthest-side at 50% 100%, rgba(27, 24, 19, 0.16), transparent) bottom /
+      radial-gradient(farthest-side at 50% 100%, var(--scroll-shade), transparent) bottom /
         100% 0.7rem no-repeat scroll;
     background-color: var(--card);
   }
@@ -1654,8 +1745,8 @@ select {
 .prose pre {
   overflow-x: auto;
   padding: 0.95rem;
-  background: var(--ink);
-  color: #f4f1ea;
+  background: var(--pre);
+  color: var(--pre-ink);
   border-radius: var(--radius-sm);
 }
 

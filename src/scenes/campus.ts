@@ -33,6 +33,7 @@ import type { Material, Object3D } from "three";
 import { BUILDINGS, LANES, PATHS, ROADS, SCENERY, WATER, type Ring } from "../data/campus";
 import { levelTag, levelTitle } from "../lib/levels";
 import { swatchFor } from "../lib/palette";
+import type { Theme } from "../lib/theme";
 
 // ANU Acton, extruded — and the whole app's stage.
 //
@@ -96,23 +97,61 @@ export type SceneState = {
 // can book carry their own identity colour (src/lib/palette.ts), everything
 // else is warm stone, and how free a building is shows as how saturated its
 // colour is rather than as a different hue.
-const COLOUR = {
-  ground: 0xf2ede2,
-  scenery: 0xd2c9b4,
-  sceneryEdge: 0x9a9080,
-  /* arterials around campus — the widest, darkest tarmac */
-  road: 0xa89c82,
-  /* service loops inside campus — narrower, and warmer so they read as
-     "the road behind Chifley" rather than as part of Barry Drive */
-  lane: 0xbcb096,
-  /* footpaths: pale concrete, but with enough contrast to trace by eye */
-  path: 0xfdfaf2,
-  pathEdge: 0xcdc2aa,
-  water: 0x7fbdd6,
-  /* what a fully-booked building fades towards */
-  spent: 0xcfc7b5,
-  mine: 0x1b1813,
+//
+// Dark mode is the same campus at night: the ground goes to the page's dark
+// paper (--scene in src/styles.css), stone to a dim warm grey, and the
+// buildings take their lifted night hues. Footpaths flip from pale-on-
+// paper to a lighter line on dark ground, still cased.
+const COLOURS = {
+  light: {
+    ground: 0xf2ede2,
+    scenery: 0xd2c9b4,
+    sceneryEdge: 0x9a9080,
+    /* arterials around campus — the widest, darkest tarmac */
+    road: 0xa89c82,
+    /* service loops inside campus — narrower, and warmer so they read as
+       "the road behind Chifley" rather than as part of Barry Drive */
+    lane: 0xbcb096,
+    /* footpaths: pale concrete, but with enough contrast to trace by eye */
+    path: 0xfdfaf2,
+    pathEdge: 0xcdc2aa,
+    water: 0x7fbdd6,
+    /* what a fully-booked building fades towards */
+    spent: 0xcfc7b5,
+    mine: 0x1b1813,
+    /* the storey the rooms stand on, looking down on a floor */
+    plate: 0xffffff,
+    outline: 0x1b1813,
+    /* light bounced up off the ground */
+    bounce: 0xd8cfbc,
+    /* sky, sun and fill-light strengths */
+    light: [2.6, 2.2, 0.85],
+    label: { fill: "rgba(255,255,255,0.94)", stroke: "rgba(27,24,19,0.22)", ink: "#1b1813" },
+  },
+  dark: {
+    ground: 0x1a1813,
+    scenery: 0x302b24,
+    sceneryEdge: 0x4c463b,
+    road: 0x3d372d,
+    lane: 0x35302a,
+    path: 0x6a6252,
+    pathEdge: 0x24211b,
+    water: 0x2a6a86,
+    spent: 0x2c2822,
+    mine: 0xf1ece2,
+    plate: 0x26221c,
+    outline: 0x000000,
+    bounce: 0x2a261f,
+    /* The day lighting runs hot on purpose — it bleaches pale stone
+       towards paper — but it also pushes the lifted night hues past white,
+       and a room that's free and one that's busy clip to the same pastel.
+       Night light is dimmer, so a colour renders about as its hex says. */
+    light: [1.1, 1.0, 0.35],
+    label: { fill: "rgba(30,27,22,0.94)", stroke: "rgba(241,236,226,0.24)", ink: "#f1ece2" },
+  },
 };
+
+type Look = (typeof COLOURS)["light"]["label"];
 
 /** A real storey is about 3.6 m. At the scale a whole campus fits on a
  *  screen that reads as a car park, so height is exaggerated — this map is
@@ -126,8 +165,6 @@ const ROOM_HEIGHT = 2.4;
 const ROOM_LIFT = 1.6;
 /** hover lifts a surface towards this rather than making it glow */
 const WHITE = /* @__PURE__ */ (() => new Color(0xffffff))();
-/** and whatever isn't the subject recedes towards the ground */
-const PAPER = /* @__PURE__ */ (() => new Color(COLOUR.ground))();
 
 /** How far the storeys drift apart once you're inside a building. */
 const FAN = 11;
@@ -137,7 +174,20 @@ const OVERHEAD = 1.36;
 /** a building seen from outside, fanned open */
 const FANNED = 0.5;
 
-export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
+export function createScene(
+  canvas: HTMLCanvasElement,
+  container: HTMLElement,
+  theme: Theme = "light",
+) {
+  const COLOUR = COLOURS[theme];
+  /** whatever isn't the subject recedes towards the ground */
+  const PAPER = new Color(COLOUR.ground);
+  /** a building's identity colour, by day or by night */
+  const identityOf = (code: string) => {
+    const swatch = swatchFor(code);
+    return new Color(theme === "dark" ? swatch.night.hex : swatch.hex);
+  };
+
   const renderer = new WebGLRenderer({
     canvas,
     antialias: true,
@@ -164,11 +214,12 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
   const camera = new PerspectiveCamera(42, 1, 6, 4000);
 
   // --- lights ------------------------------------------------------------
-  scene.add(new HemisphereLight(0xffffff, 0xd8cfbc, 2.6));
-  const sun = new DirectionalLight(0xfff6e2, 2.2);
+  const [skyLight, sunLight, fillLight] = COLOUR.light;
+  scene.add(new HemisphereLight(0xffffff, COLOUR.bounce, skyLight));
+  const sun = new DirectionalLight(0xfff6e2, sunLight);
   sun.position.set(-380, 560, -220);
   scene.add(sun);
-  const bounce = new DirectionalLight(0xdfe7f2, 0.85);
+  const bounce = new DirectionalLight(0xdfe7f2, fillLight);
   bounce.position.set(340, 190, 420);
   scene.add(bounce);
 
@@ -283,7 +334,7 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
       );
       if (!geometry) continue;
       const material = new MeshStandardMaterial({
-        color: new Color(swatchFor(building.code).hex),
+        color: identityOf(building.code),
         roughness: 0.68,
         metalness: 0,
         transparent: true,
@@ -301,14 +352,14 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
 
       const outline = new LineSegments(
         new EdgesGeometry(geometry, 25),
-        new LineBasicMaterial({ color: 0x1b1813, transparent: true, opacity: 0.28 }),
+        new LineBasicMaterial({ color: COLOUR.outline, transparent: true, opacity: 0.28 }),
       );
       outline.position.y = slab.position.y;
       group.add(outline);
       edges.push(outline);
     }
 
-    const label = makeLabel(building.code);
+    const label = makeLabel(building.code, COLOUR.label);
     label.position.set(building.centre[0], building.levels * STOREY + 26, building.centre[1]);
     group.add(label);
 
@@ -872,14 +923,18 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
   // "Reset view" means the whole campus, from anywhere: inside a building it
   // goes back out to the campus stage (a real navigation, keeping the date);
   // on the campus it just puts the camera back.
-  container.querySelector("[data-scene-reset]")?.addEventListener("click", () => {
+  // The button outlives this scene (it's in the persisted container, and a
+  // theme change builds a new scene there), so dispose() takes this back.
+  const resetButton = container.querySelector("[data-scene-reset]");
+  const onReset = () => {
     if (current && current.mode !== "campus") {
       void navigate(`/?date=${current.date}`);
       return;
     }
     touched = false;
     if (current) frameFor(current, 650);
-  });
+  };
+  resetButton?.addEventListener("click", onReset);
 
   // A row in the panel lights up the thing it names on the map, so the list
   // and the map read as one view of the same place.
@@ -932,7 +987,7 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
     for (const building of parts.values()) {
       const focused = inside && state.focus === building.slug;
       const dimmed = inside && !focused;
-      const identity = new Color(swatchFor(building.code).hex);
+      const identity = identityOf(building.code);
 
       // The building keeps its own identity colour; how free it is decides
       // how much of that colour survives. A busy building fades towards
@@ -970,7 +1025,7 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
           y = level * (STOREY + FAN);
           colour =
             level === state.floor
-              ? new Color(0xffffff).lerp(identity, 0.14)
+              ? new Color(COLOUR.plate).lerp(identity, 0.14)
               : new Color(COLOUR.ground).lerp(identity, 0.12);
           opacity = level > state.floor ? 0 : 1;
           edge = level > state.floor ? 0 : level === state.floor ? 0.5 : 0.14;
@@ -1030,7 +1085,7 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
         entry.rooms === 0
           ? levelTag(entry.level)
           : `${levelTag(entry.level)} · ${Math.round(entry.free * 100)}%`;
-      const tag = makeLabel(text, 0.03);
+      const tag = makeLabel(text, COLOUR.label, 0.03);
       tag.userData.level = entry.level;
       levelTags.add(tag);
     }
@@ -1121,7 +1176,7 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
       roomMeshes = [];
       if (!signature || !parent) return;
 
-      const identity = new Color(swatchFor(parent.code).hex);
+      const identity = identityOf(parent.code);
       const y = plateTop(state.floor);
 
       for (const room of state.rooms) {
@@ -1306,6 +1361,7 @@ export function createScene(canvas: HTMLCanvasElement, container: HTMLElement) {
       document.removeEventListener("pointerout", onListOut);
       document.removeEventListener("focusin", onListIn);
       document.removeEventListener("focusout", onListOut);
+      resetButton?.removeEventListener("click", onReset);
       renderer.dispose();
       // browsers cap live WebGL contexts; don't wait for GC to free this one
       renderer.forceContextLoss();
@@ -1500,7 +1556,7 @@ function mergeGeometries(parts: BufferGeometry[]): BufferGeometry {
 /** A tag drawn to a canvas and hung in the scene: a building's code above
  *  its roof, a level's number on its storey. `height` is a fraction of the
  *  viewport's height. */
-function makeLabel(text: string, height = 0.036): Sprite {
+function makeLabel(text: string, look: Look, height = 0.036): Sprite {
   const scale = 4;
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
@@ -1513,13 +1569,13 @@ function makeLabel(text: string, height = 0.036): Sprite {
   const ctx = canvas.getContext("2d");
   if (ctx) {
     ctx.font = font;
-    ctx.fillStyle = "rgba(255,255,255,0.94)";
+    ctx.fillStyle = look.fill;
     roundRect(ctx, 0, 0, canvas.width, canvas.height, 8 * scale);
     ctx.fill();
-    ctx.strokeStyle = "rgba(27,24,19,0.22)";
+    ctx.strokeStyle = look.stroke;
     ctx.lineWidth = 1.5 * scale;
     ctx.stroke();
-    ctx.fillStyle = "#1b1813";
+    ctx.fillStyle = look.ink;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(text, canvas.width / 2, canvas.height / 2 + scale);

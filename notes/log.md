@@ -224,3 +224,43 @@ they do something.
   the one string a reader has to type exactly. Inline code in `.prose` is now
   `nowrap` (code blocks keep their newlines); the longest inline span in the
   README is ~233 px against a 361 px column.
+
+**Dark mode.** Asked "can we add a dark mode?". Follows the device
+(prefers-color-scheme) until someone picks, then remembers the pick in a
+`theme` cookie so the server renders `data-theme` on `<html>` and the first
+paint is already right — a script-only switch flashes the device theme on
+every load. The switch is a form POST to `/api/theme` (works with JS off);
+with JS it writes the same cookie itself and re-themes in place, so the map
+isn't reloaded. Both buttons (moon, sun) are always in the masthead and CSS
+shows whichever isn't on screen — that way it's right even with no cookie and
+a dark device, which the server can't know about.
+- Tests first (`spec/theme.test.ts`): follows device with no cookie, a switch
+  both ways on every route, cookie → `data-theme`, POST sets a year-long
+  cookie and 303s back, no open redirect, junk themes ignored. All 11 failed
+  before the implementation.
+- Every colour in `styles.css` is now a `light-dark(day, night)` token, so
+  there's one palette definition rather than a light block and two copies of
+  a dark one (media query + attribute). Hard-coded colours (links, notices,
+  past-slot hatch, meter track, masthead glass, scene HUD, code blocks, floor
+  plan shell) became tokens.
+- Building hues: the darker ones sink on a dark card (indigo 1.86:1), so each
+  swatch in `palette.ts` got a lifted night twin, ≥5:1 on the dark card, all
+  taking black ink. Emitted inline as `light-dark()`, so one style attribute
+  serves both themes.
+- The 3D scene got a night palette and rebuilds on a fresh canvas when the
+  theme changes (a force-lost context can't be revived on the same canvas).
+  That exposed a leak: the Reset view listener lived on the persisted
+  container and outlived its scene; `dispose()` now removes it.
+- Found in Chrome, not by tests: (1) both switch icons showed in light mode —
+  `.btn`'s `display` beat the hide rule on specificity. (2) Signed in at
+  390×844 the masthead went to three rows, which the phone layout exists to
+  prevent; the switch now rides at the end of the nav row. (3) Night rooms on
+  a floor all looked the same lavender: the day lighting runs ~4× hot in
+  linear space, which bleaches stone nicely but clips the lifted night hues
+  to one pastel, erasing busy vs free. Night lights are dimmer, so a colour
+  renders near its hex; busy rooms now visibly sink.
+- Started a fresh Sonnet adversarial review, then stopped it: the user said
+  "no need for an adversarial review for this". Checked by tests plus the
+  Chrome pass at 1440×900 and 390×844 in both themes instead.
+- README gets three sentences on dark mode under "Why a map", next to the
+  colour paragraph it qualifies.

@@ -49,6 +49,10 @@ rows and across its floor plan. Saturation, a filled bar and a percentage show
 how free it is on the day you're looking at. **Hue says which building; fill
 says how free**, so finding a room never depends on telling ten colours apart.
 
+There's a dark mode. It follows your device until you pick one with the sun or
+moon in the top bar, and then remembers. At night each building keeps its
+colour, lifted so it still stands out on a dark map.
+
 ## What's real and what isn't
 
 - **Real: the campus.** Every building footprint and storey count comes from

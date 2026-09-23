@@ -1,3 +1,4 @@
+import type { Theme } from "../lib/theme";
 import type { SceneState } from "./campus";
 
 // Mounting the 3D campus, and deciding whether to mount it at all.
@@ -25,6 +26,16 @@ declare global {
     __campusScene?: Scene | "loading" | "unavailable";
   }
 }
+
+/** The theme on screen: a choice if someone made one, else the device's. */
+function themeNow(): Theme {
+  const chosen = document.documentElement.dataset.theme;
+  if (chosen === "light" || chosen === "dark") return chosen;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+/** the theme the live scene was built in */
+let builtIn: Theme | undefined;
 
 /** The container the live scene draws into. transition:persist carries it
  *  across a navigation only when BOTH pages have one: pass through a page
@@ -70,14 +81,23 @@ async function sync(): Promise<void> {
   if (window.__campusScene === "unavailable") return;
 
   if (typeof window.__campusScene === "object") {
-    if (container === mountedOn) {
+    if (container === mountedOn && builtIn === themeNow()) {
       container.hidden = false;
       window.__campusScene.update(state);
       return;
     }
     // a new container: the old scene has nowhere visible to draw, so let it
-    // go and build again on this one
+    // go and build again on this one. Or a new theme: the scene's colours
+    // are baked into its materials and label textures, so that's a new
+    // scene too — on a new canvas, because dispose() forces the old context
+    // lost and a canvas hands back that same dead context for as long as it
+    // lives.
+    const retheme = container === mountedOn;
     release();
+    if (retheme) {
+      const canvas = container.querySelector("canvas");
+      canvas?.replaceWith(canvas.cloneNode(false));
+    }
   }
 
   if (window.__campusScene === "loading") return;
@@ -99,7 +119,8 @@ async function sync(): Promise<void> {
     const { createScene } = await import("./campus");
     const canvas = container.querySelector("canvas");
     if (!canvas) throw new Error("no canvas to draw on");
-    const scene = createScene(canvas, container);
+    builtIn = themeNow();
+    const scene = createScene(canvas, container, builtIn);
     window.__campusScene = scene;
     mountedOn = container;
     // navigated off the map while three.js was still loading: start again on
@@ -127,4 +148,10 @@ export function mountScene(): void {
   document.addEventListener("astro:after-swap", () => {
     if (mountedOn && !mountedOn.isConnected) release();
   });
+  // the masthead's switch, or the device changing its mind while nobody has
+  // chosen — either way, sync() rebuilds if the theme on screen has moved
+  window.addEventListener("theme:change", () => void sync());
+  window
+    .matchMedia("(prefers-color-scheme: dark)")
+    .addEventListener("change", () => void sync());
 }
