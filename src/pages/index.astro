@@ -14,7 +14,8 @@ const params = Astro.url.searchParams;
 const requested = params.get("date") ?? today();
 const date = isBookableDate(requested) ? requested : today();
 
-const CAPACITIES = [0, 4, 8, 20, 50];
+// a desk seats one, so any of these but "any size" asks for a room
+const CAPACITIES = [0, 2, 6, 12, 24];
 const FEATURES = ["whiteboard", "projector", "videoconf", "quiet", "accessible"];
 
 const capacity = CAPACITIES.includes(Number(params.get("cap"))) ? Number(params.get("cap")) : 0;
@@ -26,7 +27,9 @@ const overview = campusOverview(
   user?.id,
 );
 const matching = overview.filter((entry) => entry.matching > 0);
-const totalRooms = matching.reduce((n, entry) => n + entry.matching, 0);
+const totalDesks = matching.reduce((n, entry) => n + entry.desks, 0);
+const totalRooms = matching.reduce((n, entry) => n + entry.matching, 0) - totalDesks;
+const plural = (n: number, one: string) => `${n.toLocaleString("en-AU")} ${one}${n === 1 ? "" : "s"}`;
 
 const filtered = capacity > 0 || feature !== null;
 const keep = { ...(capacity ? { cap: capacity } : {}), ...(feature ? { feature } : {}) };
@@ -48,7 +51,9 @@ const error = errorMessage(params.get("error"));
       <Fragment slot="head">
         <h1 class="mappanel-title">Find a room</h1>
         <p class="mappanel-sub">
-          {totalRooms} room{totalRooms === 1 ? "" : "s"} in {matching.length} building{
+          {plural(totalRooms, "room")}{totalDesks > 0 && ` and ${plural(totalDesks, "desk")}`} in {
+            matching.length
+          } building{
             matching.length === 1 ? "" : "s"
           }{filtered ? " match" : ""}<span class="live-only"> · pick one on the map</span>
         </p>
@@ -128,7 +133,8 @@ const error = errorMessage(params.get("error"));
                       )}
                     </span>
                     <span class="place-meta muted">
-                      {entry.matching} room{entry.matching === 1 ? "" : "s"} ·{" "}
+                      {plural(entry.matching - entry.desks, "room")}
+                      {entry.desks > 0 && ` · ${plural(entry.desks, "desk")}`} ·{" "}
                       {entry.nextFree === undefined
                         ? "nothing free today"
                         : `next free ${slotTime(entry.nextFree)}`}
@@ -147,7 +153,7 @@ const error = errorMessage(params.get("error"));
       <p class="mappanel-foot muted">
         Each building has its own colour; the bar is how free it is. A day runs 08:00–20:00 in {
           SLOTS
-        } half hours, and the map re-tints live when someone books. Floor layouts, rooms and
+        } half hours, and the map re-tints live when someone books. Floor layouts, rooms, desks and
         bookings are invented: this is a COMP4020 prototype, not an ANU service.{" "}
         <a href="/readme/">What this is</a>.
       </p>

@@ -312,3 +312,58 @@ a dark device, which the server can't know about.
   (keep the used half hours, free only the rest). The user decided: cancelling
   a booking that has already started should cancel the whole booking. So
   it stays as it was: one cancel, whole booking.
+- User, on the floor layouts: "need to make the floor plans more realistic,
+  the floors are usually a few meeting rooms and lab rooms, and mostly
+  desks/study spaces … you may need to update the database too to not remove
+  booked places". This overturns the earlier generator's assumption that a
+  floor is a corridor lined with tutorial rooms and lecture theatres.
+- `src/lib/floorplan.ts` rewritten. Each building gets a stair and lift core,
+  one of them or one near each end past 80 m, stacked the same on every
+  storey. Each floor gets 2–4 meeting rooms and sometimes a computer lab
+  clustered round it: one guaranteed lab floor per building, rooms held to
+  30% of the frontage. Everything else is benches of individually bookable
+  desks in lettered study areas. Deep buildings get a second band per side
+  across an aisle, capped at two, because the first screenshot showed
+  Marie Reay's floor half empty. New codes, `MRTC 104` for a room and
+  `MRTC 1A-07` for desk 07 in area A, deliberately never take the old
+  `1.04` shape, so a kept old room can't collide with a new code.
+- Assumption: desks are bookable one by one, like rooms. That fits
+  "booked places" and the existing one-booking-per-place model.
+- DB: `rooms.listed` added (migration 0001). `seedRooms` only ran on an empty
+  building, so an existing volume would never have picked up a new layout.
+  It's replaced by `reconcileRooms`, which runs every boot. Old places:
+  fixture (cast) bookings are deleted and replanted. A real upcoming booking
+  keeps the room listed where it is, and new places under it are unlisted
+  until it's over. Past-only bookings keep the row, unlisted, for history.
+  No bookings at all means the row is deleted. Queries, and `createBooking`,
+  ignore unlisted places.
+- Rehearsed on a copy of the real local `.data/app.db`: all 27 real
+  upcoming bookings kept on their original rooms, 26 old rooms kept, 8
+  hidden, 311 new places waiting. The first run showed the seeder planting
+  demo traffic on the kept old rooms, which would have kept them alive, so
+  seeding is now limited to planned codes. A regression check went red (21
+  bookings on the kept room instead of 1) before the fix, then green.
+- Also made seeding skip slots that clash with existing real bookings (it
+  never checked before), and gave desks lighter traffic.
+- UI: the floor panel keeps day-strip rows for rooms, and puts desks in one
+  folding `<details>` per study area ("28 of 30 free now") opening to a grid
+  of desk chips with a free-time bar. Colour sits in the bar, not the chip
+  background, so text contrast holds. The 3D scene draws desks as low tiles
+  with shared geometry, and cores as stone blocks marked "Lifts". The SVG
+  plan draws cores, and uses one rotated `<g>` per floor instead of a
+  rotate() on every rect. The seat filter is now any/2/6/12/24, since 50
+  matched nothing once lecture theatres went. Level and campus copy says
+  rooms and desks.
+- Page weight: Birch L1 (670 desks) was 549 KB of uncompressed HTML, now 428
+  KB after the SVG trim, desk titles dropped and a rounded scene state.
+  The rest is just how many desks there are. The server sends no gzip,
+  which is left as a separate call.
+- TDD: new contracts in `spec/campus.test.ts` went red first. They cover:
+  mostly desks, at least one meeting room, at most seven rooms, a lab per
+  building, cores clear of places, the new code shapes, desk capacity 1, and
+  two in-memory-DB reconcile cases. `spec/routes.ts` now walks `mrtc-g01`
+  and a desk page `mrtc-ga-01`.
+- User said no adversarial review for this change. Checked in Chrome at
+  1440×900 (Marie Reay L1, Birch L1, a desk's dialog), 390×844 (floor, then
+  the panel opened on a study area) and 1920×1080 (Hanna Neumann L2).
+  Fixed the dialog saying "book this room" on a desk.

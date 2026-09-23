@@ -1,0 +1,1 @@
+ALTER TABLE `rooms` ADD `listed` integer DEFAULT true NOT NULL;

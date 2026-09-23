@@ -2,10 +2,15 @@ import type { CampusBuilding, Ring } from "../data/campus";
 
 // Floor layouts, invented but derived from each building's REAL OpenStreetMap
 // footprint. The footprint is rotated onto its minimum-area bounding box, a
-// corridor is run down the long axis, and rooms are cut either side of it on
-// a grid — then any room that doesn't sit wholly inside the real outline is
-// dropped. So Marie Reay's floors are Marie Reay-shaped and Birch's are
-// Birch-shaped, and nothing floats outside a wall.
+// corridor is run down the long axis, and the bands of floor either side of
+// it are cut on a grid — then anything that doesn't sit wholly inside the
+// real outline is dropped. So Marie Reay's floors are Marie Reay-shaped and
+// Birch's are Birch-shaped, and nothing floats outside a wall.
+//
+// What goes in those bands is what a university floor actually is: a stair
+// and lift core (the same on every storey, because it's a shaft), a few
+// meeting rooms and a computer lab clustered around it, and everything else
+// open study space — benches of desks, each one bookable on its own.
 //
 // It's pure and deterministic: the same building and floor always plan the
 // same way, seeded from the building code. That's what lets the layout live
@@ -17,14 +22,27 @@ import type { CampusBuilding, Ring } from "../data/campus";
 /** metres */
 const WALL = 1.2; // setback from the outer wall
 const CORRIDOR = 2.4; // central corridor width
-const MIN_DEPTH = 3; // shallowest room worth having
+const AISLE = 1.8; // between two bands on the same side, in a deep building
+const MIN_DEPTH = 3; // shallowest band worth having
 const MAX_DEPTH = 8; // deeper than this and rooms stop reading as rooms
 const CELL = 1.5; // layout grid step along the corridor
 const PARTY = 0.25; // wall between neighbouring rooms
+const CORE_CELLS = 4; // stairs, lifts and toilets: 6 m of frontage
+const ROOM_SHARE = 0.3; // of a floor's frontage, at most, for enclosed rooms
 
-export type PlannedRoom = {
-  code: string;
-  floor: number;
+/** A study bench: two rows of desks back to back, running across the band.
+ *  Every gap here is at least 0.2 m, because coordinates are rounded to the
+ *  nearest 100 mm and a thinner gap could round shut. */
+const DESK_DEPTH = 0.7; // front to back, along the corridor
+const DESK_WIDTH = 1.2; // side to side, across the band
+const DESK_GAP = 0.2; // between neighbouring desks, and back to back
+const BENCH = 2 * DESK_DEPTH + DESK_GAP;
+const BENCH_PITCH = BENCH + 1.8; // room for two chairs, back to back
+const BENCH_END = 0.8; // clear of a room's wall or the core
+const WALKWAY = 1.0; // along the corridor side of a study area
+const BENCHES_PER_AREA = 6; // then a new study area letter
+
+export type Rect = {
   /** centre, in the same local metre grid as src/data/campus.ts */
   cx: number;
   cz: number;
@@ -33,23 +51,47 @@ export type PlannedRoom = {
   d: number;
   /** rotation of the corridor axis, radians */
   angle: number;
+};
+
+export type PlannedRoom = Rect & {
+  code: string;
+  floor: number;
   capacity: number;
   features: string[];
   kind: RoomKind;
 };
 
-export type RoomKind = "meeting" | "tutorial" | "computer-lab" | "study" | "lecture";
+/** What the layout plans now, plus the kinds an older layout planned —
+ *  a room kept from that layout because someone still has it booked keeps
+ *  its kind, and still needs a name. */
+export type RoomKind = "meeting" | "computer-lab" | "desk" | "tutorial" | "study" | "lecture";
 
 const KIND_LABEL: Record<RoomKind, string> = {
   meeting: "Meeting room",
-  tutorial: "Tutorial room",
   "computer-lab": "Computer lab",
+  desk: "Study desk",
+  tutorial: "Tutorial room",
   study: "Group study",
   lecture: "Lecture theatre",
 };
 
 export function labelFor(kind: RoomKind): string {
-  return KIND_LABEL[kind];
+  return KIND_LABEL[kind] ?? "Room";
+}
+
+export function isDesk(kind: string): boolean {
+  return kind === "desk";
+}
+
+/** "MRTC 1A-07" → "1A", the study area a desk is in; undefined for a room. */
+export function deskArea(code: string): string | undefined {
+  return code.match(/ ([0-9G][A-Z])-\d+$/)?.[1];
+}
+
+/** "MRTC 1A-07" → "07", "MRTC 104" → "104": what's painted on the thing. */
+export function shortCode(code: string): string {
+  const tail = code.split(" ").pop() ?? code;
+  return tail.includes("-") ? tail.slice(tail.indexOf("-") + 1) : tail;
 }
 
 // --- geometry ------------------------------------------------------------
@@ -66,8 +108,8 @@ export function containsPoint(ring: Ring, [x, z]: [number, number]): boolean {
   return inside;
 }
 
-/** A room's four world-space corners, clockwise from its near-left. */
-export function cornersOf(room: PlannedRoom): Array<[number, number]> {
+/** A rect's four world-space corners, clockwise from its near-left. */
+export function cornersOf(room: Rect): Array<[number, number]> {
   const cos = Math.cos(room.angle);
   const sin = Math.sin(room.angle);
   const hw = room.w / 2;
@@ -80,6 +122,29 @@ export function cornersOf(room: PlannedRoom): Array<[number, number]> {
       [-hw, hd],
     ] as Array<[number, number]>
   ).map(([u, v]) => [room.cx + u * cos - v * sin, room.cz + u * sin + v * cos]);
+}
+
+/** Do two rotated rects overlap? Separating-axis theorem, with a hair of
+ *  tolerance so two rects sharing an edge don't count. */
+export function rectsOverlap(a: Rect, b: Rect): boolean {
+  const reach = (Math.hypot(a.w, a.d) + Math.hypot(b.w, b.d)) / 2;
+  if (Math.hypot(a.cx - b.cx, a.cz - b.cz) >= reach) return false;
+  const pa = cornersOf(a);
+  const pb = cornersOf(b);
+  for (const poly of [pa, pb]) {
+    for (let i = 0; i < poly.length; i++) {
+      const [x1, y1] = poly[i];
+      const [x2, y2] = poly[(i + 1) % poly.length];
+      const nx = -(y2 - y1);
+      const ny = x2 - x1;
+      const along = (p: Array<[number, number]>) => p.map(([x, y]) => x * nx + y * ny);
+      const ia = along(pa);
+      const ib = along(pb);
+      if (Math.max(...ia) <= Math.min(...ib) + 1e-6) return false;
+      if (Math.max(...ib) <= Math.min(...ia) + 1e-6) return false;
+    }
+  }
+  return true;
 }
 
 /** Andrew's monotone chain. */
@@ -176,24 +241,29 @@ function rng(seed: number): () => number {
   };
 }
 
-function pick<T>(random: () => number, items: readonly T[]): T {
-  return items[Math.floor(random() * items.length) % items.length];
-}
-
-// --- layout --------------------------------------------------------------
+// --- the frame every floor of a building shares --------------------------
 
 /** The bands of floor either side of the corridor, as [near, far] offsets
- *  across the building's short axis. A building too shallow for a central
- *  corridor gets one band with the corridor along an edge instead. */
+ *  across the building's short axis. A deep building gets more than one
+ *  band a side, with an aisle between them, so its floor is used out to the
+ *  windows rather than stopping 8 m from the corridor. A building too
+ *  shallow for a central corridor gets one band with the corridor along an
+ *  edge instead. */
 function bandsFor(halfV: number): Array<[number, number]> {
   const usable = halfV - WALL;
   const half = CORRIDOR / 2;
   if (usable - half >= MIN_DEPTH) {
-    const depth = Math.min(usable - half, MAX_DEPTH);
-    return [
-      [-half - depth, -half],
-      [half, half + depth],
-    ];
+    const bands: Array<[number, number]> = [];
+    for (const side of [-1, 1]) {
+      // two deep at most: past that, a real floor turns to offices and
+      // plant rooms, not more desks
+      for (let near = half, n = 0; n < 2 && usable - near >= MIN_DEPTH; n++) {
+        const depth = Math.min(usable - near, MAX_DEPTH);
+        bands.push(side < 0 ? [-(near + depth), -near] : [near, near + depth]);
+        near += depth + AISLE;
+      }
+    }
+    return bands;
   }
   if (2 * usable - CORRIDOR >= MIN_DEPTH) {
     return [[-usable, Math.min(-usable + MAX_DEPTH, usable - CORRIDOR)]];
@@ -201,126 +271,283 @@ function bandsFor(halfV: number): Array<[number, number]> {
   return [];
 }
 
-export function planFloor(building: CampusBuilding, floor: number): PlannedRoom[] {
+type Frame = {
+  angle: number;
+  bands: Array<[number, number]>;
+  cells: number;
+  /** u at the start of cell i */
+  uAt: (cell: number) => number;
+  /** a rect from corridor-frame bounds, or undefined if it isn't wholly
+   *  inside the real outline */
+  rect: (u0: number, u1: number, v0: number, v1: number) => Rect | undefined;
+  /** fits[band][cell]: a one-cell room there would be inside the walls */
+  fits: boolean[][];
+};
+
+function frameOf(building: CampusBuilding): Frame {
   const ring = building.plan;
   const box = orientedBox(ring);
-  const random = rng(seedOf(`${building.code}:${floor}`));
   const cos = Math.cos(box.angle);
   const sin = Math.sin(box.angle);
-  const toWorld = (u: number, v: number): [number, number] => [
-    box.cx + u * cos - v * sin,
-    box.cz + u * sin + v * cos,
-  ];
+  const startU = -box.halfU + WALL;
+  const cells = Math.max(0, Math.floor((2 * box.halfU - 2 * WALL) / CELL));
+  const uAt = (cell: number) => startU + cell * CELL;
 
   // Is every part of this rect's boundary inside the real outline? Corners
   // plus edge midpoints, so a notch in a concave building can't slip between
-  // the probes. Tested on the ROUNDED geometry the room will actually carry,
+  // the probes. Tested on the ROUNDED geometry the rect will actually carry,
   // because rounding afterwards could nudge a corner back through a wall.
-  const encloses = (room: PlannedRoom): boolean => {
-    const corners = cornersOf(room);
+  const rect = (u0: number, u1: number, v0: number, v1: number): Rect | undefined => {
+    const u = (u0 + u1) / 2;
+    const v = (v0 + v1) / 2;
+    const out: Rect = {
+      cx: r1(box.cx + u * cos - v * sin),
+      cz: r1(box.cz + u * sin + v * cos),
+      w: r1(u1 - u0),
+      d: r1(v1 - v0),
+      angle: box.angle,
+    };
+    const corners = cornersOf(out);
     const probes = corners.flatMap((p, i) => {
       const q = corners[(i + 1) % corners.length];
       return [p, [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2] as [number, number]];
     });
-    return probes.every((p) => containsPoint(ring, p));
+    return probes.every((p) => containsPoint(ring, p)) ? out : undefined;
   };
 
-  const rooms: PlannedRoom[] = [];
-  const startU = -box.halfU + WALL;
-  const cells = Math.floor((2 * box.halfU - 2 * WALL) / CELL);
+  const bands = bandsFor(box.halfV);
+  const fits = bands.map(([v0, v1]) =>
+    Array.from({ length: cells }, (_, i) => walled(rect, uAt, i, 1, v0, v1) !== undefined),
+  );
+  return { angle: box.angle, bands, cells, uAt, rect, fits };
+}
 
-  /** One room, or undefined if it wouldn't sit wholly inside the building. */
-  const roomAt = (from: number, span: number, v0: number, v1: number) => {
-    // PARTY/2 off each end leaves a wall between neighbours — which is both
-    // what a floor really looks like and what keeps two rooms from touching
-    // once their coordinates are rounded to the nearest 100 mm.
-    const u0 = startU + from * CELL + PARTY / 2;
-    const u1 = startU + (from + span) * CELL - PARTY / 2;
-    const [cx, cz] = toWorld((u0 + u1) / 2, (v0 + v1) / 2);
-    const room: PlannedRoom = {
-      code: "",
-      floor,
-      cx: r1(cx),
-      cz: r1(cz),
-      w: r1(u1 - u0),
-      d: r1(v1 - v0 - PARTY),
-      angle: box.angle,
-      capacity: 0,
-      features: [],
-      kind: "meeting",
-    };
-    return encloses(room) ? room : undefined;
-  };
+/** A walled space spanning cells [from, from + span) of a band. PARTY/2 off
+ *  each end and each side leaves a wall between neighbours — which is both
+ *  what a floor looks like and what keeps two rooms from touching once
+ *  their coordinates are rounded to the nearest 100 mm. */
+function walled(
+  rect: Frame["rect"],
+  uAt: Frame["uAt"],
+  from: number,
+  span: number,
+  v0: number,
+  v1: number,
+): Rect | undefined {
+  return rect(uAt(from) + PARTY / 2, uAt(from + span) - PARTY / 2, v0 + PARTY / 2, v1 - PARTY / 2);
+}
 
-  /** Split a run of usable cells into rooms of varying frontage. */
-  const cut = (offset: number, length: number, v0: number, v1: number): void => {
-    let at = 0;
-    while (length - at >= 2) {
-      const remaining = length - at;
-      // 2–5 cells (3–7.5 m) of frontage, never leaving a 1-cell orphan
-      let span = 2 + Math.floor(random() * 4);
-      if (span > remaining) span = remaining;
-      if (remaining - span === 1) span = remaining;
+type Slot = { band: number; from: number; span: number };
 
-      const room = roomAt(offset + at, span, v0, v1);
-      if (room) rooms.push(room);
-      at += span;
-    }
-  };
-
-  for (const [v0, v1] of bandsFor(box.halfV)) {
-    // walk the band, gathering runs of consecutive cells that fit
-    let run = 0;
-    for (let i = 0; i <= cells; i++) {
-      if (i < cells && roomAt(i, 1, v0, v1) !== undefined) {
-        run++;
-        continue;
+/** Where the stair and lift cores go: the middle of the building, or a
+ *  third of the way in from each end if it's long enough to want two —
+ *  nobody should be 50 m from a fire stair. Floor-independent, because a
+ *  lift shaft goes all the way up. */
+function coreSlots(frame: Frame): Slot[] {
+  const length = frame.cells * CELL;
+  const targets = length > 80 ? [0.3, 0.7] : [0.5];
+  const out: Slot[] = [];
+  for (const target of targets) {
+    const centre = Math.round(frame.cells * target - CORE_CELLS / 2);
+    search: for (let step = 0; step < frame.cells; step++) {
+      for (const from of [centre + step, centre - step]) {
+        for (let band = 0; band < frame.bands.length; band++) {
+          if (from < 0 || from + CORE_CELLS > frame.cells) continue;
+          if (out.some((s) => s.band === band && from < s.from + s.span + 2 && s.from < from + CORE_CELLS + 2)) continue;
+          const [v0, v1] = frame.bands[band];
+          const cellsFit = frame.fits[band].slice(from, from + CORE_CELLS).every(Boolean);
+          if (cellsFit && walled(frame.rect, frame.uAt, from, CORE_CELLS, v0, v1)) {
+            out.push({ band, from, span: CORE_CELLS });
+            break search;
+          }
+        }
       }
-      if (run >= 2) cut(i - run, run, v0, v1);
-      run = 0;
     }
+  }
+  return out;
+}
+
+/** The stair, lift and toilet cores: not bookable, drawn so a floor reads
+ *  as a floor. The same on every storey. */
+export function planCores(building: CampusBuilding): Rect[] {
+  const frame = frameOf(building);
+  return coreSlots(frame).flatMap(({ band, from, span }) => {
+    const [v0, v1] = frame.bands[band];
+    const rect = walled(frame.rect, frame.uAt, from, span, v0, v1);
+    return rect ? [rect] : [];
+  });
+}
+
+// --- one floor -----------------------------------------------------------
+
+export function planFloor(building: CampusBuilding, floor: number): PlannedRoom[] {
+  const frame = frameOf(building);
+  if (frame.bands.length === 0 || frame.cells === 0) return [];
+  const random = rng(seedOf(`${building.code}:${floor}`));
+  const level = floor === 0 ? "G" : String(floor);
+
+  // what's already spoken for: outside the walls, or the core
+  const taken = frame.fits.map((row) => row.map((fits) => !fits));
+  const cores = coreSlots(frame);
+  for (const core of cores) {
+    for (let i = core.from; i < core.from + core.span; i++) taken[core.band][i] = true;
+  }
+  const coreCentres = cores.map((c) => c.from + c.span / 2);
+
+  // --- the enclosed rooms, clustered round the core ---------------------
+
+  // one building-wide floor is guaranteed a lab, so every building has one;
+  // any other floor gets one about a third of the time
+  const labFloor = seedOf(`${building.code}:lab`) % building.levels;
+  const labs = (floor === labFloor ? 1 : 0) + (random() < 0.3 ? 1 : 0);
+  const meetings = 2 + Math.floor(random() * 3);
+  const wanted: Array<"computer-lab" | "meeting"> = [
+    ...Array<"computer-lab">(labs).fill("computer-lab"),
+    ...Array<"meeting">(meetings).fill("meeting"),
+  ];
+
+  // rooms get at most this much of the floor, so a small building is still
+  // mostly study space; the first meeting room always goes in
+  let budget = taken.flat().filter((t) => !t).length * ROOM_SHARE;
+
+  const enclosed: Array<{ kind: "computer-lab" | "meeting"; u: number; band: number; rect: Rect }> = [];
+  for (const kind of wanted) {
+    let best: { slot: Slot; rect: Rect; score: number } | undefined;
+    for (let band = 0; band < frame.bands.length; band++) {
+      const [v0, v1] = frame.bands[band];
+      const depth = v1 - v0;
+      if (kind === "computer-lab" && depth < 4.5) continue;
+      // a lab is about 60 m², a meeting room about 20
+      const target = kind === "computer-lab" ? 60 : 20;
+      const span = Math.max(2, Math.min(7, Math.round(target / depth / CELL)));
+      const first = kind === "meeting" && !enclosed.some((room) => room.kind === "meeting");
+      if (span > budget && !first) continue;
+      // rooms open off the main corridor, not off an aisle between desks
+      const offCorridor = Math.min(Math.abs(v0), Math.abs(v1)) > CORRIDOR ? 3 : 0;
+      for (let from = 0; from + span <= frame.cells; from++) {
+        if (taken[band].slice(from, from + span).some(Boolean)) continue;
+        const centre = from + span / 2;
+        const near = Math.min(...coreCentres.map((c) => Math.abs(c - centre)), frame.cells);
+        // hug a wall that's already there (the core, another room) so the
+        // rooms make one block and the study space stays in one piece
+        const snug =
+          (from > 0 && taken[band][from - 1] && frame.fits[band][from - 1]) ||
+          (from + span < frame.cells && taken[band][from + span] && frame.fits[band][from + span]);
+        const score = near - (snug ? 4 : 0) + offCorridor + random() * 3;
+        if (best && score >= best.score) continue;
+        const rect = walled(frame.rect, frame.uAt, from, span, v0, v1);
+        if (rect) best = { slot: { band, from, span }, rect, score };
+      }
+    }
+    if (!best) continue;
+    const { slot, rect } = best;
+    for (let i = slot.from; i < slot.from + slot.span; i++) taken[slot.band][i] = true;
+    budget -= slot.span;
+    enclosed.push({ kind, u: frame.uAt(slot.from + slot.span / 2), band: slot.band, rect });
   }
 
   // number along the corridor so consecutive room numbers are neighbours,
   // the way a real wayfinding scheme works
-  rooms.sort((a, b) => a.cx - b.cx || a.cz - b.cz);
-  return rooms.map((room, index) => furnish(building, room, index, random));
+  enclosed.sort((a, b) => a.u - b.u || a.band - b.band);
+  const rooms: PlannedRoom[] = enclosed.map((room, index) =>
+    furnishRoom(room.kind, room.rect, `${building.code} ${level}${pad(index + 1)}`, floor, random),
+  );
+
+  // --- everything left is open study space, benched with desks ---------
+
+  type Area = { u: number; band: number; desks: Array<{ rect: Rect; aisle: boolean }> };
+  const areas: Area[] = [];
+  for (let band = 0; band < frame.bands.length; band++) {
+    const [v0, v1] = frame.bands[band];
+    // the walkway runs along the corridor side; desks start at the far wall
+    const corridorSide = Math.abs(v0) < Math.abs(v1) ? v0 : v1;
+    const inward = corridorSide === v0 ? -1 : 1; // from the far wall toward the corridor
+    const farWall = corridorSide === v0 ? v1 : v0;
+    const perBench = Math.floor((v1 - v0 - WALKWAY - 0.1 + DESK_GAP) / (DESK_WIDTH + DESK_GAP));
+    if (perBench < 1) continue;
+
+    for (let from = 0; from < frame.cells; ) {
+      if (taken[band][from]) {
+        from++;
+        continue;
+      }
+      let to = from;
+      while (to < frame.cells && !taken[band][to]) to++;
+
+      const uA = frame.uAt(from) + BENCH_END;
+      const uB = frame.uAt(to) - BENCH_END;
+      const benches = uB - uA >= BENCH ? Math.floor((uB - uA - BENCH) / BENCH_PITCH) + 1 : 0;
+      const slack = uB - uA - (BENCH + (benches - 1) * BENCH_PITCH);
+
+      let area: Area | undefined;
+      for (let b = 0; b < benches; b++) {
+        if (b % BENCHES_PER_AREA === 0) {
+          area = { u: uA + slack / 2 + b * BENCH_PITCH, band, desks: [] };
+          areas.push(area);
+        }
+        const u0 = uA + slack / 2 + b * BENCH_PITCH;
+        for (const side of [0, 1]) {
+          const du = u0 + side * (DESK_DEPTH + DESK_GAP);
+          // from the walkway in, so desk 01 is the one you reach first
+          for (let k = perBench - 1; k >= 0; k--) {
+            const vNear = farWall + inward * (0.1 + k * (DESK_WIDTH + DESK_GAP));
+            const vFar = vNear + inward * DESK_WIDTH;
+            const rect = frame.rect(du, du + DESK_DEPTH, Math.min(vNear, vFar), Math.max(vNear, vFar));
+            if (rect) area?.desks.push({ rect, aisle: k === perBench - 1 });
+          }
+        }
+      }
+      from = to;
+    }
+  }
+
+  const desks: PlannedRoom[] = [];
+  const lettered = areas.filter((a) => a.desks.length > 0).sort((a, b) => a.u - b.u || a.band - b.band);
+  lettered.slice(0, 26).forEach((area, index) => {
+    const letter = String.fromCharCode(65 + index);
+    const quiet = random() < 0.4;
+    area.desks.slice(0, 99).forEach(({ rect, aisle }, n) => {
+      desks.push({
+        ...rect,
+        code: `${building.code} ${level}${letter}-${pad(n + 1)}`,
+        floor,
+        kind: "desk",
+        capacity: 1,
+        // the desk at the walkway end of a bench is the one a wheelchair
+        // can pull straight up to
+        features: [...(quiet ? ["quiet"] : []), ...(aisle ? ["accessible"] : [])],
+      });
+    });
+  });
+
+  return [...rooms, ...desks];
 }
 
-function furnish(
-  building: CampusBuilding,
-  room: PlannedRoom,
-  index: number,
+function furnishRoom(
+  kind: "computer-lab" | "meeting",
+  rect: Rect,
+  code: string,
+  floor: number,
   random: () => number,
 ): PlannedRoom {
-  const area = room.w * room.d;
-  const kind: RoomKind =
-    room.floor === 0 && area > 55
-      ? "lecture"
-      : area > 42
-        ? pick(random, ["tutorial", "computer-lab"] as const)
-        : area > 22
-          ? pick(random, ["tutorial", "study"] as const)
-          : "meeting";
+  const area = rect.w * rect.d;
+  // a meeting room's seats are its table, not its floor area: some have a
+  // big table and room round it, some are packed
+  const capacity =
+    kind === "computer-lab"
+      ? Math.max(10, Math.min(48, Math.round(area / 2.6)))
+      : Math.max(3, Math.min(14, Math.round(area / (2.2 + random() * 2.2))));
 
-  // roughly 2 m² a seat in a flat room, tighter in raked seating
-  const perSeat = kind === "lecture" ? 1.1 : kind === "computer-lab" ? 2.6 : 2.1;
-  const capacity = Math.max(2, Math.min(120, Math.round(area / perSeat)));
+  const features = ["whiteboard"];
+  if (kind === "computer-lab" || random() < 0.5) features.push("projector");
+  if (kind === "meeting" && random() < 0.5) features.push("videoconf");
+  if (floor === 0 || random() < 0.7) features.push("accessible");
 
-  const features: string[] = [];
-  if (kind !== "study" || random() < 0.6) features.push("whiteboard");
-  if (kind === "lecture" || kind === "tutorial" || random() < 0.35) features.push("projector");
-  if (random() < 0.3) features.push("videoconf");
-  if (kind === "study" && random() < 0.5) features.push("quiet");
-  if (room.floor === 0 || random() < 0.6) features.push("accessible");
+  return { ...rect, code, floor, kind, capacity, features };
+}
 
-  return {
-    ...room,
-    code: `${building.code} ${room.floor}.${String(index + 1).padStart(2, "0")}`,
-    capacity,
-    features,
-    kind,
-  };
+function pad(n: number): string {
+  return String(n).padStart(2, "0");
 }
 
 function r1(n: number): number {

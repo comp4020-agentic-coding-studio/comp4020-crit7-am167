@@ -1,7 +1,7 @@
 # ANU Room Booking
 
-Find a free room at ANU Acton on a 3D map of the real campus, and book it
-without leaving the map. Your booking is still there after a reload, a
+Find a free room or study desk at ANU Acton on a 3D map of the real campus,
+and book it without leaving the map. Your booking is still there after a reload, a
 redeploy, and everyone else's bookings.
 
 This is a COMP4020 prototype, not an ANU service. Nothing in it books a real
@@ -13,10 +13,11 @@ room.
    like `u1234567` works too: the first time one is used, it keeps whatever
    password you type.
 2. **Pick a building.** Its storeys fan apart.
-3. **Pick a level.** The camera swings overhead and the rooms show their
-   numbers.
-4. **Pick a room.** Its day opens in a dialog in front of the map. Choose a
-   start and end time, and book.
+3. **Pick a level.** The camera swings overhead onto the floor: a few meeting
+   rooms and a lab with their numbers on, grey stair and lift cores, and the
+   rest open study space full of desks.
+4. **Pick a room or a desk.** Its day opens in a dialog in front of the map.
+   Choose a start and end time, and book.
 5. **Reload**, or open **My bookings**. It's still there, and you can cancel it
    from either place.
 
@@ -27,9 +28,12 @@ everyone books the same way.
 A panel floats on the map, as a sidebar on a desktop and a sheet along the
 bottom of a phone. It lists the same buildings, levels and rooms, and filters
 the campus by seats and by what a room needs: a whiteboard, a projector, video
-conferencing, quiet, or accessibility. Point at a row and the thing it names
-lights up on the map. Rooms open 08:00 to 20:00 in half hours, and a booking
-runs up to three hours, up to two weeks ahead.
+conferencing, quiet, or accessibility. Asking for 2 seats or more leaves the
+desks out. On a level, each room has a row with its day drawn out. Desks are
+grouped by study area: each area folds to one line saying how many are free,
+and opens to a grid of desk numbers. Point at a row or a desk and the thing it
+names lights up on the map. Everything opens 08:00 to 20:00 in half hours, and
+a booking runs up to three hours, up to two weeks ahead.
 
 ## Why a map
 
@@ -67,11 +71,25 @@ colour, lifted so it still stands out on a dark map.
   restarts and redeploys. The clash check and the insert happen in one
   transaction (`src/lib/booking.ts`), so two people clicking the same slot at
   the same moment can't both get it.
-- **Invented: the rooms.** Floor layouts, room numbers, capacities and features.
-  ANU's floor plans aren't open data, so `src/lib/floorplan.ts` runs a corridor
-  down each building's real outline, cuts rooms either side, and keeps only
-  what fits inside the real walls. Marie Reay's floors are Marie Reay-shaped,
-  but no room here matches a real one.
+- **Invented: the floors.** Layouts, room and desk numbers, capacities and
+  features. ANU's floor plans aren't open data, so `src/lib/floorplan.ts`
+  runs a corridor down each building's real outline and keeps only what fits
+  inside the real walls. It lays out each floor the way a university floor
+  usually is. A stair and lift core goes up the middle, or one near each end
+  of a long building. Two to four meeting rooms and sometimes a computer lab
+  sit around the core, with every building getting a lab somewhere and rooms
+  taking no more than about a third of any floor. Everything else is open
+  study space: benches of desks, lettered into study areas, each desk
+  bookable on its own. A desk's number says where it is: `MRTC 1A-07` is desk
+  07 in study area A on level 1, and `MRTC 104` is a room on level 1. Marie
+  Reay's floors are Marie Reay-shaped, but nothing here matches a real room.
+- **Kept: bookings through a change of layout.** The database outlives every
+  deploy, so on each boot `src/lib/seed.ts` brings the rooms into line with
+  the current plan without losing anyone's booking. The fictional
+  people's bookings are replanted on the new layout. An old room with a real
+  booking still to come stays where it was, bookable, and the new desks under
+  it wait until that booking is over. An old room with only past bookings
+  leaves the map but keeps its row, so My bookings can still name it.
 - **Invented: everyone else.** 280 fictional people hold a fortnight of
   plausible bookings, seeded rolling forward so the campus is never empty
   when you open it.
@@ -133,8 +151,12 @@ landmarks, headings, an axe-core accessibility floor on every route in
   opens as a dialog in front of the map with a sign-in or a booking form and a
   way back to its level.
 - `spec/campus.test.ts` holds the floor-plan generator to its contract: every
-  room inside its building's real footprint, no two overlapping, the same
-  layout every time.
+  floor mostly desks, with at least one meeting room and no more than seven
+  rooms; a lab in every building; every room and desk inside its building's
+  real footprint and clear of the core; no two overlapping; the same layout
+  every time. It also moves an old-layout database onto the new plan and
+  checks that a booked room survives with its booking, and that the desks
+  under it come back once that booking is over.
 
 What no test can tell me is whether the map is actually easier than a
 dropdown, or whether a camera flight reads as "one step further in" rather
