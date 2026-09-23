@@ -1646,6 +1646,9 @@ select {
   border: 1px solid var(--line);
   border-radius: 4px;
   padding: 0.08em 0.32em;
+  /* inline code is what people type back in (a uni ID, the demo password),
+     so it never breaks at its hyphen onto a second line */
+  white-space: nowrap;
 }
 
 .prose pre {
@@ -1661,6 +1664,7 @@ select {
   border: 0;
   color: inherit;
   padding: 0;
+  white-space: inherit;
 }
 
 .prose table {

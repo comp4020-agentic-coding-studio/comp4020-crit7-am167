@@ -185,3 +185,30 @@ Asked whether the bookings are in the database or hardcoded: they're in
 SQLite through Drizzle. `createBooking` checks for a clash and inserts in one
 transaction, and the seed only ever adds demo bookings for dates that don't
 have any yet, never deleting, so a real booking survives restarts.
+
+**Rewrote the About page (README.md).** Asked to "rewrite the about section".
+The old README had grown with the app to 1,786 words and put the design
+argument before any way to use it. Rewrote it reader-first (~1,350 words):
+what it is, a five-step "Try it" with the demo sign-in, then why a map, what's
+real vs invented, what good looks like, what was left out, how it's checked.
+Checked every claim against the code before writing it, which turned up
+drift the old text had: the seat and feature filters existed but were only
+mentioned in passing, the booking limits (08:00–20:00, three hours, two weeks
+ahead) weren't stated, "~240" context buildings is exactly 243, and live
+updates re-tint the map but not the panel's lists, so the README now says
+so. Roles on the demo accounts are labels only; said so rather than implying
+they do something.
+
+- **Adversarial review** (fresh Sonnet agent, no shared context, told to be
+  hostile, checking claims against the code and a preview build, and walking
+  the "Try it" steps in Chrome). No accuracy errors and no overclaiming; it
+  verified each number and both cancel paths. Content it said the rewrite
+  dropped: one-finger orbit / two-finger pinch on a phone, and building codes
+  drawn in screen space. Both restored. Also tightened the colour paragraph
+  it found clunky. Kept the demo roster as IDs only, not the old table: IDs
+  and the password are all anyone needs to sign in.
+- Found in Chrome at 390×844, not by tests or the reviewer: the demo password
+  wrapped at its hyphen, "anu-" on one line and "acton" on the next, which is
+  the one string a reader has to type exactly. Inline code in `.prose` is now
+  `nowrap` (code blocks keep their newlines); the longest inline span in the
+  README is ~233 px against a 361 px column.
