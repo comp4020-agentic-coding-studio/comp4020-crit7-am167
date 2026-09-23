@@ -1,6 +1,14 @@
 import { beforeAll, describe, expect, inject, it } from "vitest";
 import { DEMO_PASSWORD, DEMO_USERS } from "../src/lib/seed";
-import { MAX_DAYS_AHEAD, MAX_SLOTS_PER_BOOKING, SLOTS, addDays, today } from "../src/lib/slots";
+import {
+  MAX_DAYS_AHEAD,
+  MAX_SLOTS_PER_BOOKING,
+  SLOTS,
+  addDays,
+  bookingPhase,
+  currentSlot,
+  today,
+} from "../src/lib/slots";
 
 // The week's spec, as contracts, driven over HTTP against the built server:
 //
@@ -310,6 +318,53 @@ describe("booking", () => {
       expect(res.status).toBe(303);
       const page = await get(`/b/${buildingSlug}/${roomSlug}/?date=${date}`);
       expect(await page.text()).not.toContain("anonymous");
+    });
+  });
+
+  describe("a booking that's already started", () => {
+    // 08:14 on Thu 24 Sep 2026 in Canberra (AEST, UTC+10)
+    const at = new Date("2026-09-23T22:14:00Z");
+    const day = "2026-09-24";
+
+    it("is in progress from its first half hour until its last one ends", () => {
+      expect(bookingPhase(day, 0, 6, at), "08:00–11:00 at 08:14").toBe("now");
+      expect(bookingPhase(day, 1, 2, at), "08:30–09:00 at 08:14").toBe("upcoming");
+      expect(bookingPhase(day, 0, 1, new Date("2026-09-23T22:30:00Z")), "ended 08:30").toBe(
+        "past",
+      );
+      expect(bookingPhase(addDays(day, 1), 0, 6, at)).toBe("upcoming");
+      expect(bookingPhase(addDays(day, -1), 0, 6, at)).toBe("past");
+    });
+
+    it("gets its own place on your list, above what's coming up", async (ctx) => {
+      const slot = currentSlot();
+      if (slot < 0 || slot >= SLOTS) ctx.skip(); // campus is shut, nothing can be under way
+
+      const res = await get(`/api/rooms?building=marie-reay&date=${today()}`);
+      const rooms = (await res.json()) as Array<{ id: number; free: number[] }>;
+      const room = rooms.find((r) => r.free.includes(slot));
+      if (!room) throw new Error(`no room free at slot ${slot} today`);
+
+      const purpose = `under way ${process.hrtime.bigint()}`;
+      const made = await post(
+        "/api/bookings",
+        {
+          roomId: String(room.id),
+          date: today(),
+          startSlot: String(slot),
+          endSlot: String(slot + 1),
+          purpose,
+        },
+        priya,
+      );
+      expect(made.headers.get("location")).not.toMatch(/error=/);
+
+      const html = await (await get("/bookings/", priya)).text();
+      const now = html.indexOf("Happening now");
+      const next = html.indexOf("Coming up");
+      expect(now, "a Happening now section").toBeGreaterThan(-1);
+      expect(html.indexOf(purpose)).toBeGreaterThan(now);
+      expect(html.indexOf(purpose), "listed before Coming up, not in it").toBeLessThan(next);
     });
   });
 

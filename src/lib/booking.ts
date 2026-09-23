@@ -7,6 +7,7 @@ import {
   MAX_DAYS_AHEAD,
   MAX_SLOTS_PER_BOOKING,
   SLOTS,
+  bookingPhase,
   currentSlot,
   daysBetween,
   isBookableDate,
@@ -142,8 +143,12 @@ export type UserBooking = BookingRow & {
   buildingCode: string;
 };
 
-/** Someone's own bookings: what's ahead first, then what's been. */
-export function bookingsForUser(userId: number): { upcoming: UserBooking[]; past: UserBooking[] } {
+/** Someone's own bookings: what's under way, what's ahead, then what's been. */
+export function bookingsForUser(userId: number): {
+  now: UserBooking[];
+  upcoming: UserBooking[];
+  past: UserBooking[];
+} {
   const rows = db
     .select({
       id: bookings.id,
@@ -171,12 +176,12 @@ export function bookingsForUser(userId: number): { upcoming: UserBooking[]; past
     .orderBy(asc(bookings.date), asc(bookings.startSlot))
     .all();
 
-  const now = today();
-  const slot = currentSlot();
-  const isPast = (b: UserBooking) => b.date < now || (b.date === now && b.endSlot <= slot);
+  const at = new Date();
+  const phase = (b: UserBooking) => bookingPhase(b.date, b.startSlot, b.endSlot, at);
   return {
-    upcoming: rows.filter((b) => !isPast(b)),
-    past: rows.filter(isPast).reverse(),
+    now: rows.filter((b) => phase(b) === "now"),
+    upcoming: rows.filter((b) => phase(b) === "upcoming"),
+    past: rows.filter((b) => phase(b) === "past").reverse(),
   };
 }
 

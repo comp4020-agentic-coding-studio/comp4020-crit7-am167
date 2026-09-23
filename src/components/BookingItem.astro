@@ -1,0 +1,63 @@
+---
+import type { UserBooking } from "../lib/booking";
+import { roomUrl } from "../lib/links";
+import { swatchVars } from "../lib/palette";
+import { type BookingPhase, dateLabel, slotRangeLabel } from "../lib/slots";
+
+// One row of My bookings. The phase decides what it offers: one under way
+// or ahead can still be cancelled (its section heading says which it is),
+// and one that's been is just a record — no link into a day you can't
+// book, no cancel for a room already used.
+
+interface Props {
+  booking: UserBooking;
+  phase: BookingPhase;
+}
+
+const { booking, phase } = Astro.props;
+---
+
+<li
+  class:list={["row", { "row-now": phase === "now", "row-past": phase === "past" }]}
+  style={swatchVars(booking.buildingCode)}
+>
+  <span class="when">
+    {dateLabel(booking.date)}
+    <br />
+    {slotRangeLabel(booking.startSlot, booking.endSlot)}
+  </span>
+  <span class="what">
+    <b>{booking.purpose}</b>
+    {
+      phase === "past" ? (
+        <span>
+          {booking.buildingName} · <span class="code">{booking.roomCode}</span>
+        </span>
+      ) : (
+        <span>
+          {booking.buildingName} ·{" "}
+          <a
+            class="code"
+            href={roomUrl(booking.buildingSlug, booking.roomCode, { date: booking.date })}
+          >
+            {booking.roomCode}
+          </a>
+        </span>
+      )
+    }
+  </span>
+  {
+    phase !== "past" && (
+      <form method="post" action="/api/bookings/cancel">
+        <input type="hidden" name="bookingId" value={booking.id} />
+        <input type="hidden" name="next" value="/bookings/" />
+        <button class="btn btn-quiet btn-danger btn-sm" type="submit">
+          Cancel
+          <span class="visually-hidden">
+            {booking.purpose} in {booking.roomCode} on {dateLabel(booking.date)}
+          </span>
+        </button>
+      </form>
+    )
+  }
+</li>

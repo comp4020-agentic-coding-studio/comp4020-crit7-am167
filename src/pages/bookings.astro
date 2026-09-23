@@ -1,18 +1,30 @@
 ---
+import BookingItem from "../components/BookingItem.astro";
 import Shell from "../components/Shell.astro";
 import { currentUser, nameOf } from "../lib/auth";
 import { bookingsForUser, errorMessage } from "../lib/booking";
-import { roomUrl } from "../lib/links";
-import { swatchVars } from "../lib/palette";
-import { dateLabel, slotRangeLabel } from "../lib/slots";
+import { secondsUntilSlot, today } from "../lib/slots";
 
 const user = currentUser(Astro.cookies);
-const { upcoming, past } = user ? bookingsForUser(user.id) : { upcoming: [], past: [] };
+const { now, upcoming, past } = user
+  ? bookingsForUser(user.id)
+  : { now: [], upcoming: [], past: [] };
 const error =
   errorMessage(Astro.url.searchParams.get("error")) ??
   (Astro.url.searchParams.get("error") === "not-yours"
     ? "That booking isn't yours to cancel."
     : undefined);
+
+// The next moment today one of these rows changes section — a booking under
+// way ending, or one ahead starting — so an open tab can catch up then
+// rather than saying "in progress" about something that's over.
+const boundaries = [
+  ...now.map((booking) => booking.endSlot),
+  ...upcoming.filter((booking) => booking.date === today()).map((booking) => booking.startSlot),
+];
+const refreshIn = boundaries.length
+  ? Math.max(1, secondsUntilSlot(Math.min(...boundaries)))
+  : undefined;
 ---
 
 <Shell title="My bookings · ANU Room Booking" current="bookings" user={user ?? undefined}>
@@ -45,7 +57,18 @@ const error =
 
   {
     user && (
-      <div class="stack">
+      <div class="stack" data-refresh-in={refreshIn}>
+        {now.length > 0 && (
+          <section class="stack-sm">
+            <h2>Happening now ({now.length})</h2>
+            <ul class="rows">
+              {now.map((booking) => (
+                <BookingItem booking={booking} phase="now" />
+              ))}
+            </ul>
+          </section>
+        )}
+
         <section class="stack-sm">
           <h2>Coming up ({upcoming.length})</h2>
           {upcoming.length === 0 ? (
@@ -58,35 +81,7 @@ const error =
           ) : (
             <ul class="rows">
               {upcoming.map((booking) => (
-                <li class="row" style={swatchVars(booking.buildingCode)}>
-                  <span class="when">
-                    {dateLabel(booking.date)}
-                    <br />
-                    {slotRangeLabel(booking.startSlot, booking.endSlot)}
-                  </span>
-                  <span class="what">
-                    <b>{booking.purpose}</b>
-                    <span>
-                      {booking.buildingName} ·{" "}
-                      <a
-                        class="code"
-                        href={roomUrl(booking.buildingSlug, booking.roomCode, { date: booking.date })}
-                      >
-                        {booking.roomCode}
-                      </a>
-                    </span>
-                  </span>
-                  <form method="post" action="/api/bookings/cancel">
-                    <input type="hidden" name="bookingId" value={booking.id} />
-                    <input type="hidden" name="next" value="/bookings/" />
-                    <button class="btn btn-quiet btn-danger btn-sm" type="submit">
-                      Cancel
-                      <span class="visually-hidden">
-                        {booking.purpose} in {booking.roomCode} on {dateLabel(booking.date)}
-                      </span>
-                    </button>
-                  </form>
-                </li>
+                <BookingItem booking={booking} phase="upcoming" />
               ))}
             </ul>
           )}
@@ -97,19 +92,7 @@ const error =
             <h2>Already been ({past.length})</h2>
             <ul class="rows">
               {past.slice(0, 20).map((booking) => (
-                <li class="row row-past" style={swatchVars(booking.buildingCode)}>
-                  <span class="when">
-                    {dateLabel(booking.date)}
-                    <br />
-                    {slotRangeLabel(booking.startSlot, booking.endSlot)}
-                  </span>
-                  <span class="what">
-                    <b>{booking.purpose}</b>
-                    <span>
-                      {booking.buildingName} · <span class="code">{booking.roomCode}</span>
-                    </span>
-                  </span>
-                </li>
+                <BookingItem booking={booking} phase="past" />
               ))}
             </ul>
           </section>
@@ -118,3 +101,17 @@ const error =
     )
   }
 </Shell>
+
+<script>
+  import { navigate } from "astro:transitions/client";
+
+  // Re-render in place when a booking starts or ends (the server works out
+  // when), a second late so the clock has definitely turned over.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  document.addEventListener("astro:page-load", () => {
+    clearTimeout(timer);
+    const seconds = Number(document.querySelector<HTMLElement>("[data-refresh-in]")?.dataset.refreshIn);
+    if (!seconds) return;
+    timer = setTimeout(() => navigate(location.href, { history: "replace" }), (seconds + 1) * 1000);
+  });
+</script>

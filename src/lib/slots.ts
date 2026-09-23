@@ -55,6 +55,39 @@ export function currentSlot(now: Date = new Date()): number {
   return Math.min(SLOTS, Math.floor((minutes - DAY_START_MINUTES) / SLOT_MINUTES));
 }
 
+/** Seconds from `now` until `slot` starts on campus today (negative once it
+ *  has). Lets an open page know when to catch up with the clock. */
+export function secondsUntilSlot(slot: number, now: Date = new Date()): number {
+  const [h, m, sec] = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TIMEZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  })
+    .format(now)
+    .split(":")
+    .map(Number);
+  return (DAY_START_MINUTES + slot * SLOT_MINUTES) * 60 - (h * 3600 + m * 60 + sec);
+}
+
+export type BookingPhase = "past" | "now" | "upcoming";
+
+/** Where a booking sits against the campus clock: over, under way (its
+ *  current half hour has started and its last hasn't ended), or ahead. */
+export function bookingPhase(
+  date: string,
+  startSlot: number,
+  endSlot: number,
+  now: Date = new Date(),
+): BookingPhase {
+  const day = today(now);
+  if (date !== day) return date < day ? "past" : "upcoming";
+  const slot = currentSlot(now);
+  if (endSlot <= slot) return "past";
+  return startSlot <= slot ? "now" : "upcoming";
+}
+
 /** Shift a YYYY-MM-DD by whole days, without tripping over a timezone. */
 export function addDays(date: string, days: number): string {
   const [y, m, d] = date.split("-").map(Number);

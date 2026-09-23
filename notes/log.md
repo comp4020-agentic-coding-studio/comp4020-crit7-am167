@@ -286,3 +286,29 @@ a dark device, which the server can't know about.
 - TDD: 7 new sign-in contracts in `spec/booking.test.ts` went red first, then
   the code made them pass. Checked in Chrome at 390×844 / 1440×900 / 1920×1080;
   split the focus ring so it wraps the `u` and the digits as one box.
+- User, at 08:14 with a booking running 08:00–11:00: "the top booking should
+  be in a seperate 'in progress' or active state". My bookings now has a
+  "Happening now" section above "Coming up". The phase of each booking
+  (past / now / upcoming) comes from one pure `bookingPhase()` in
+  `src/lib/slots.ts`, driven by the Canberra clock, which replaces the
+  inline past check in `bookingsForUser`. Row markup was repeated in two
+  sections and would have been in a third, so it moved into
+  `BookingItem.astro`; a past row still drops its link and Cancel.
+- The first draft had an "In progress · until 11:00" pill with a pulsing
+  dot. The user struck it: "that in progress icon is redundant, simply
+  being inside happening now is enough". Removed; the row keeps a full
+  outline in its building's colour.
+- User asked what happens once a booking elapses: it moves to "Already been"
+  on the next render. So an open tab doesn't stay stale, the page carries
+  `data-refresh-in` (seconds until the next start or end today, from
+  `secondsUntilSlot()`), and a script re-renders it in place through the
+  ClientRouter at that moment. Checked in Chrome by forcing a 1s timer.
+- TDD: a unit contract for `bookingPhase` pinned at 08:14 AEST, plus an
+  HTTP contract that a booking already started is listed under Happening
+  now, before Coming up. That one skips when the campus is shut. Both
+  went red first. Checked at 390×844 / 1440×900 / 1920×1080 against a
+  throwaway DB.
+- Asked whether Cancel on a booking already under way should end it early
+  (keep the used half hours, free only the rest). The user decided: cancelling
+  a booking that has already started should cancel the whole booking. So
+  it stays as it was: one cancel, whole booking.

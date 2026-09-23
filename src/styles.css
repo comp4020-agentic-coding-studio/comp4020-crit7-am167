@@ -958,6 +958,15 @@ select {
   color: var(--ink-2);
 }
 
+/* under way: outlined all round in its building's colour, so it reads as
+   the one to act on right now */
+.row-now {
+  border-color: var(--hue);
+  box-shadow:
+    0 0 0 1px var(--hue),
+    0 2px 10px var(--shade);
+}
+
 .row .when {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
