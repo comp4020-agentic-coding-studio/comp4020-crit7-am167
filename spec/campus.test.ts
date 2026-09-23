@@ -109,25 +109,33 @@ describe("floorplan", () => {
     expect(planFloor(tall, 0)).not.toEqual(planFloor(tall, 1));
   });
 
-  // What a real teaching floor is: a stair and lift core, a few meeting rooms
-  // and a lab, and the rest of it open study space full of desks.
-  it("makes each floor mostly desks, with a few meeting rooms and labs", () => {
-    const area = (list: PlannedRoom[]) => list.reduce((n, p) => n + p.w * p.d, 0);
+  // What a real teaching floor is: a stair and lift core, a run of meeting
+  // rooms and a lab or two, and some open study space with desks in it —
+  // not a sea of desks. The first cut of this generator planned ~10,500
+  // desks against ~120 rooms; the user put it at roughly three times the
+  // rooms and a fifth of the desks.
+  it("gives each floor a run of meeting rooms and some study space", () => {
     for (const { building, floor, places } of floors) {
       const where = `${building.code} floor ${floor}`;
       for (const place of places) {
         expect(["meeting", "computer-lab", "desk"], where).toContain(place.kind);
       }
-
-      const desks = places.filter((p) => p.kind === "desk");
+      const meetings = places.filter((p) => p.kind === "meeting");
       const enclosed = places.filter((p) => p.kind !== "desk");
-      expect(enclosed.some((p) => p.kind === "meeting"), `${where} has no meeting room`).toBe(true);
-      expect(enclosed.length, `${where} is a warren of rooms`).toBeLessThanOrEqual(7);
-      expect(desks.length, `${where} has too few desks`).toBeGreaterThan(enclosed.length * 3);
-      // and the desks hold most of the floor, not a corner of it: a desk's
-      // own top is about a third of the floor it takes, with chair and aisle
-      expect(area(desks) * 3, `${where}: desks are a sideshow`).toBeGreaterThan(area(enclosed));
+      expect(meetings.length, `${where} has too few meeting rooms`).toBeGreaterThanOrEqual(3);
+      expect(enclosed.length, `${where} is a warren of rooms`).toBeLessThanOrEqual(21);
+      expect(places.some((p) => p.kind === "desk"), `${where} has no study space`).toBe(true);
     }
+  });
+
+  it("plans a few hundred rooms and a couple of thousand desks across campus", () => {
+    const all = floors.flatMap((f) => f.places);
+    const desks = all.filter((p) => p.kind === "desk").length;
+    const rooms = all.length - desks;
+    expect(rooms, "rooms: about three times the first cut's ~120").toBeGreaterThanOrEqual(300);
+    expect(rooms).toBeLessThanOrEqual(420);
+    expect(desks, "desks: about a fifth of the first cut's ~10,500").toBeGreaterThanOrEqual(1700);
+    expect(desks).toBeLessThanOrEqual(2500);
   });
 
   it("gives every building at least one computer lab", () => {

@@ -13,9 +13,9 @@ room.
    like `u1234567` works too: the first time one is used, it keeps whatever
    password you type.
 2. **Pick a building.** Its storeys fan apart.
-3. **Pick a level.** The camera swings overhead onto the floor: a few meeting
-   rooms and a lab with their numbers on, grey stair and lift cores, and the
-   rest open study space full of desks.
+3. **Pick a level.** The camera swings overhead onto the floor: a run of
+   meeting rooms and a lab or two with their numbers on, grey stair and lift
+   cores, and open study space with pods of desks.
 4. **Pick a room or a desk.** Its day opens in a dialog in front of the map.
    Choose a start and end time, and book.
 5. **Reload**, or open **My bookings**. It's still there, and you can cancel it
@@ -76,11 +76,11 @@ colour, lifted so it still stands out on a dark map.
   runs a corridor down each building's real outline and keeps only what fits
   inside the real walls. It lays out each floor the way a university floor
   usually is. A stair and lift core goes up the middle, or one near each end
-  of a long building. Two to four meeting rooms and sometimes a computer lab
-  sit around the core, with every building getting a lab somewhere and rooms
-  taking no more than about a third of any floor. Everything else is open
-  study space: benches of desks, lettered into study areas, each desk
-  bookable on its own. A desk's number says where it is: `MRTC 1A-07` is desk
+  of a long building. Six to a dozen meeting rooms and one to three computer
+  labs sit around the core, taking up to about 60% of a floor. The rest is
+  open study space: pods of four desks with room round them, lettered into
+  study areas, each desk bookable on its own. That comes to about 350 rooms
+  and 2,300 desks across the ten buildings. A desk's number says where it is: `MRTC 1A-07` is desk
   07 in study area A on level 1, and `MRTC 104` is a room on level 1. Marie
   Reay's floors are Marie Reay-shaped, but nothing here matches a real room.
 - **Kept: bookings through a change of layout.** The database outlives every
@@ -151,8 +151,9 @@ landmarks, headings, an axe-core accessibility floor on every route in
   opens as a dialog in front of the map with a sign-in or a booking form and a
   way back to its level.
 - `spec/campus.test.ts` holds the floor-plan generator to its contract: every
-  floor mostly desks, with at least one meeting room and no more than seven
-  rooms; a lab in every building; every room and desk inside its building's
+  floor with at least three meeting rooms, no more than 21 rooms, and some
+  study space; 300–420 rooms and 1,700–2,500 desks campus-wide; a lab in
+  every building; every room and desk inside its building's
   real footprint and clear of the core; no two overlapping; the same layout
   every time. It also moves an old-layout database onto the new plan and
   checks that a booked room survives with its booking, and that the desks
