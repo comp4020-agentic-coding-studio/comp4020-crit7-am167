@@ -264,3 +264,25 @@ a dark device, which the server can't know about.
   Chrome pass at 1440×900 and 390×844 in both themes instead.
 - README gets three sentences on dark mode under "Why a map", next to the
   colour paragraph it qualifies.
+- User asked for the login's uni ID to have the `u` pre-filled and to cap the
+  length. The field is now a fixed `u` prefix joined to a digits-only box
+  (`inputmode=numeric`, `maxlength=7`, `pattern=[0-9]{7}`), with a visible
+  hint. A small delegated script cleans up pastes and autofills, e.g.
+  `U1000003`, which `maxlength` alone would cut to `u100000`. The server
+  accepts `1234567` or `u1234567` (`normaliseUniId`), so the flow still
+  works with JS off and for the existing tests.
+- Passwords are capped at 256 chars (`MAX_PASSWORD`) on both sides, with their
+  own `long-password` error, so no one can make the server scrypt a huge
+  form body.
+- Security pass as requested. SQL injection: all queries go through Drizzle
+  parameters, and the only raw SQL is static seed text or Drizzle's
+  `sql` template, which binds its values. XSS: Astro escapes every
+  interpolation, the error text is looked up from a fixed map, and a
+  test now proves a `"><script>` in `next`/`error` can't break out of its
+  attribute. Found and fixed an **open redirect**: the `next` check (starts
+  with `/`, not `//`) let `/\evil.example` through, and browsers read that
+  as `//evil.example`. It was copied in four places (login, session, theme,
+  cancel), which now share `safeNext()` in `src/lib/links.ts`.
+- TDD: 7 new sign-in contracts in `spec/booking.test.ts` went red first, then
+  the code made them pass. Checked in Chrome at 390×844 / 1440×900 / 1920×1080;
+  split the focus ring so it wraps the `u` and the digits as one box.

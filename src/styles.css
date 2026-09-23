@@ -566,6 +566,49 @@ select {
   flex: 3 1 14rem;
 }
 
+/* a fixed prefix the visitor doesn't type — the uni ID's `u` — joined to
+   its input so the two read as one box */
+.input-affix {
+  display: flex;
+}
+
+.input-prefix {
+  display: flex;
+  align-items: center;
+  padding: 0 0.7rem;
+  background: var(--paper-2);
+  border: 1px solid var(--line-2);
+  border-right: 0;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-weight: 650;
+}
+
+.input-affix input {
+  flex: 1;
+  min-width: 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-family: var(--mono);
+}
+
+/* one focus ring round the pair, not one that splits the u from its digits */
+.input-affix input:focus-visible {
+  outline: none;
+}
+
+.input-affix:has(input:focus-visible) {
+  outline: 2px solid var(--gold-deep);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.field-hint {
+  margin: 0.3rem 0 0;
+  font-size: 0.82rem;
+  color: var(--ink-3);
+}
+
 /* --- notices ------------------------------------------------------------- */
 
 .notice {

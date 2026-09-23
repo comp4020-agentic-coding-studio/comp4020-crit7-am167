@@ -26,3 +26,14 @@ export function withQuery(path: string, params: Record<string, string | number>)
   const q = query.toString();
   return q ? `${path}?${q}` : path;
 }
+
+/** Where to send someone after a form: back into this app, or `fallback`.
+ *  A leading `/` isn't enough on its own — browsers read `//host` and
+ *  `/\host` as another site, which would make every `next=` an open
+ *  redirect. */
+export function safeNext(next: string | null | undefined, fallback = "/"): string {
+  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) {
+    return fallback;
+  }
+  return next;
+}

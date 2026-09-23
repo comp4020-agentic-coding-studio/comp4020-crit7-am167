@@ -1,18 +1,19 @@
 ---
 import Shell from "../components/Shell.astro";
-import { currentUser } from "../lib/auth";
+import { MAX_PASSWORD, currentUser } from "../lib/auth";
+import { safeNext as toSafeNext } from "../lib/links";
 import { DEMO_PASSWORD, DEMO_USERS } from "../lib/seed";
 
 // Signed-out pages still return 200 rather than redirecting: the spec's
 // invariants fetch every route without a session and require a page.
 
 const user = currentUser(Astro.cookies);
-const next = Astro.url.searchParams.get("next") ?? "/";
-const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : "/";
+const safeNext = toSafeNext(Astro.url.searchParams.get("next"));
 
 const ERRORS: Record<string, string> = {
-  "bad-id": "A uni ID looks like u1234567 — a 'u' and seven digits.",
+  "bad-id": "A uni ID is a 'u' and seven digits. The 'u' is filled in, so type just the digits.",
   "bad-password": "That password doesn't match this uni ID. New IDs pick their own on first use.",
+  "long-password": `Passwords can be up to ${MAX_PASSWORD} characters.`,
 };
 const error = ERRORS[Astro.url.searchParams.get("error") ?? ""];
 ---
@@ -40,15 +41,23 @@ const error = ERRORS[Astro.url.searchParams.get("error") ?? ""];
           <input type="hidden" name="next" value={safeNext} />
           <div>
             <label for="uniId">Uni ID</label>
-            <input
-              id="uniId"
-              name="uniId"
-              required
-              placeholder="u1234567"
-              pattern="[uU][0-9]{7}"
-              autocomplete="username"
-              spellcheck="false"
-            />
+            <div class="input-affix">
+              <span class="input-prefix" aria-hidden="true">u</span>
+              <input
+                id="uniId"
+                name="uniId"
+                required
+                placeholder="1234567"
+                inputmode="numeric"
+                maxlength="7"
+                pattern="[0-9]{7}"
+                title="Seven digits — the u is already there"
+                aria-describedby="uniId-hint"
+                autocomplete="username"
+                spellcheck="false"
+              />
+            </div>
+            <p class="field-hint" id="uniId-hint">The 'u' is filled in. Type your seven digits.</p>
           </div>
           <div>
             <label for="password">Password</label>
@@ -58,6 +67,7 @@ const error = ERRORS[Astro.url.searchParams.get("error") ?? ""];
               type="password"
               required
               minlength="4"
+              maxlength={MAX_PASSWORD}
               autocomplete="current-password"
             />
           </div>
@@ -90,3 +100,37 @@ const error = ERRORS[Astro.url.searchParams.get("error") ?? ""];
     </section>
   </div>
 </Shell>
+
+<script>
+  // The form already holds the u, so the box takes digits only. maxlength
+  // stops a typed eighth digit on its own; this catches what it can't — a
+  // pasted or autofilled "u1234567" (which maxlength would cut to "u123456")
+  // and stray spaces or letters. Delegated from document so it survives
+  // view-transition navigations. With no JS the pattern still guards the
+  // form, and the server accepts either shape.
+  const digitsOf = (text: string) =>
+    text
+      .trim()
+      .replace(/^u/i, "")
+      .replace(/\D/g, "")
+      .slice(0, 7);
+
+  const isUniId = (target: EventTarget | null): target is HTMLInputElement =>
+    target instanceof HTMLInputElement && target.id === "uniId";
+
+  document.addEventListener("paste", (event) => {
+    if (!isUniId(event.target)) return;
+    const text = event.clipboardData?.getData("text");
+    if (text === undefined) return;
+    event.preventDefault();
+    event.target.value = digitsOf(text);
+  });
+
+  for (const type of ["input", "change"]) {
+    document.addEventListener(type, (event) => {
+      if (!isUniId(event.target)) return;
+      const clean = digitsOf(event.target.value);
+      if (clean !== event.target.value) event.target.value = clean;
+    });
+  }
+</script>

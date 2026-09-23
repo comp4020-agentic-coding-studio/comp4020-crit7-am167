@@ -131,6 +131,40 @@ describe("booking", () => {
       expect(sessionCookie(res)).toBeFalsy();
     });
 
+    it("takes the seven digits on their own, since the form supplies the u", async () => {
+      const res = await post("/api/session", {
+        uniId: DEMO_USERS[2].uniId.slice(1),
+        password: DEMO_PASSWORD,
+      });
+      expect(sessionCookie(res)).toBeTruthy();
+    });
+
+    it("refuses an id longer than a uni ID, with or without the u", async () => {
+      for (const uniId of ["u12345678", "12345678"]) {
+        const res = await post("/api/session", { uniId, password: "whatever" });
+        expect(sessionCookie(res), uniId).toBeFalsy();
+        expect(res.headers.get("location"), uniId).toContain("error=bad-id");
+      }
+    });
+
+    it("refuses a password too long to be a real one, and says so", async () => {
+      const fresh = `u8${String(Date.now()).slice(-6)}`;
+      const res = await post("/api/session", { uniId: fresh, password: "x".repeat(257) });
+      expect(sessionCookie(res)).toBeFalsy();
+      expect(res.headers.get("location")).toContain("error=long-password");
+    });
+
+    it("only ever sends you back into this app after signing in", async () => {
+      for (const next of ["https://evil.example/", "//evil.example/", "/\\evil.example/"]) {
+        const res = await post("/api/session", {
+          uniId: DEMO_USERS[2].uniId,
+          password: DEMO_PASSWORD,
+          next,
+        });
+        expect(res.headers.get("location"), next).toBe("/");
+      }
+    });
+
     it("registers a uni ID nobody has used before", async () => {
       const fresh = `u9${String(Date.now()).slice(-6)}`;
       const res = await post("/api/session", { uniId: fresh, password: "a-new-password" });
@@ -138,6 +172,25 @@ describe("booking", () => {
 
       const wrong = await post("/api/session", { uniId: fresh, password: "guessing" });
       expect(sessionCookie(wrong), "and then keep that password").toBeFalsy();
+    });
+
+    it("puts the u in for you and stops the id at seven digits", async () => {
+      const html = await (await get("/login/")).text();
+      const input = html.match(/<input[^>]*name="uniId"[^>]*>/)?.[0] ?? "";
+      expect(input, "the uni ID input").not.toBe("");
+      expect(input).toMatch(/maxlength="7"/);
+      expect(input).toMatch(/inputmode="numeric"/);
+      expect(html).toMatch(/class="input-prefix"[^>]*>u</);
+    });
+
+    it("escapes whatever the URL hands the sign-in page", async () => {
+      const attack = `/"><script>alert(1)</script>`;
+      const html = await (
+        await get(`/login/?next=${encodeURIComponent(attack)}&error=${encodeURIComponent(attack)}`)
+      ).text();
+      // Astro escapes the quote, so the attack stays inert inside the
+      // attribute; breaking out of it is what would make it run
+      expect(html).not.toContain(`"><script>alert(1)`);
     });
 
     it("shows who you are once you're signed in", async () => {

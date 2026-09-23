@@ -22,14 +22,26 @@ const SESSION_DAYS = 30;
 /** ANU uni IDs are a `u` and seven digits. */
 export const UNI_ID = /^u\d{7}$/;
 
+/** Long enough for any password manager; short enough that nobody can make
+ *  the server scrypt a megabyte of form body. */
+export const MAX_PASSWORD = 256;
+
 export type SignInResult =
   | { ok: true; user: User; token: string }
-  | { ok: false; error: "bad-id" | "bad-password" };
+  | { ok: false; error: "bad-id" | "bad-password" | "long-password" };
+
+/** The sign-in form supplies the `u` and asks only for the digits, but a
+ *  pasted or autofilled `u1234567` means the same person. */
+export function normaliseUniId(raw: string): string {
+  const id = raw.trim().toLowerCase();
+  return /^\d+$/.test(id) ? `u${id}` : id;
+}
 
 export function signIn(rawUniId: string, password: string): SignInResult {
-  const uniId = rawUniId.trim().toLowerCase();
+  const uniId = normaliseUniId(rawUniId);
   if (!UNI_ID.test(uniId)) return { ok: false, error: "bad-id" };
   if (password.length < 4) return { ok: false, error: "bad-password" };
+  if (password.length > MAX_PASSWORD) return { ok: false, error: "long-password" };
 
   const existing = db.select().from(users).where(eq(users.uniId, uniId)).get();
   if (existing) {
