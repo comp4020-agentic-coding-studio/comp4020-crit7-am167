@@ -8,9 +8,10 @@ import type { CampusBuilding, Ring } from "../data/campus";
 // Birch's are Birch-shaped, and nothing floats outside a wall.
 //
 // What goes in those bands is what a university floor actually is: a stair
-// and lift core (the same on every storey, because it's a shaft), a few
-// meeting rooms and a computer lab clustered around it, and everything else
-// open study space — benches of desks, each one bookable on its own.
+// and lift core (the same on every storey, because it's a shaft), a run of
+// six to a dozen meeting rooms and a lab or two around it, and the rest open
+// study space: pods of four desks with room round them, each desk bookable
+// on its own.
 //
 // It's pure and deterministic: the same building and floor always plan the
 // same way, seeded from the building code. That's what lets the layout live
@@ -28,7 +29,7 @@ const MAX_DEPTH = 8; // deeper than this and rooms stop reading as rooms
 const CELL = 1.5; // layout grid step along the corridor
 const PARTY = 0.25; // wall between neighbouring rooms
 const CORE_CELLS = 4; // stairs, lifts and toilets: 6 m of frontage
-const ROOM_SHARE = 0.3; // of a floor's frontage, at most, for enclosed rooms
+const ROOM_SHARE = 0.6; // of a floor's frontage, at most, for enclosed rooms
 
 /** A study bench: two rows of desks back to back, running across the band.
  *  Every gap here is at least 0.2 m, because coordinates are rounded to the
@@ -37,10 +38,11 @@ const DESK_DEPTH = 0.7; // front to back, along the corridor
 const DESK_WIDTH = 1.2; // side to side, across the band
 const DESK_GAP = 0.2; // between neighbouring desks, and back to back
 const BENCH = 2 * DESK_DEPTH + DESK_GAP;
-const BENCH_PITCH = BENCH + 1.8; // room for two chairs, back to back
+const POD_ACROSS = 2; // desks a side: a pod is four desks, two facing two
+const BENCH_PITCH = BENCH + 4.8; // chairs round a pod, and room to move between pods
 const BENCH_END = 0.8; // clear of a room's wall or the core
 const WALKWAY = 1.0; // along the corridor side of a study area
-const BENCHES_PER_AREA = 6; // then a new study area letter
+const BENCHES_PER_AREA = 8; // pods, then a new study area letter
 
 export type Rect = {
   /** centre, in the same local metre grid as src/data/campus.ts */
@@ -396,18 +398,16 @@ export function planFloor(building: CampusBuilding, floor: number): PlannedRoom[
 
   // --- the enclosed rooms, clustered round the core ---------------------
 
-  // one building-wide floor is guaranteed a lab, so every building has one;
-  // any other floor gets one about a third of the time
-  const labFloor = seedOf(`${building.code}:lab`) % building.levels;
-  const labs = (floor === labFloor ? 1 : 0) + (random() < 0.3 ? 1 : 0);
-  const meetings = 2 + Math.floor(random() * 3);
+  // a floor usually has a lab, often two; meeting rooms run six to a dozen
+  const labs = 1 + (random() < 0.5 ? 1 : 0) + (random() < 0.3 ? 1 : 0);
+  const meetings = 6 + Math.floor(random() * 7);
   const wanted: Array<"computer-lab" | "meeting"> = [
     ...Array<"computer-lab">(labs).fill("computer-lab"),
     ...Array<"meeting">(meetings).fill("meeting"),
   ];
 
-  // rooms get at most this much of the floor, so a small building is still
-  // mostly study space; the first meeting room always goes in
+  // rooms get at most this much of the floor, so even a small building keeps
+  // some study space; the first meeting room always goes in
   let budget = taken.flat().filter((t) => !t).length * ROOM_SHARE;
 
   const enclosed: Array<{ kind: "computer-lab" | "meeting"; u: number; band: number; rect: Rect }> = [];
@@ -453,7 +453,7 @@ export function planFloor(building: CampusBuilding, floor: number): PlannedRoom[
     furnishRoom(room.kind, room.rect, `${building.code} ${level}${pad(index + 1)}`, floor, random),
   );
 
-  // --- everything left is open study space, benched with desks ---------
+  // --- everything left is open study space, with pods of desks in it ---
 
   type Area = { u: number; band: number; desks: Array<{ rect: Rect; aisle: boolean }> };
   const areas: Area[] = [];
@@ -463,8 +463,14 @@ export function planFloor(building: CampusBuilding, floor: number): PlannedRoom[
     const corridorSide = Math.abs(v0) < Math.abs(v1) ? v0 : v1;
     const inward = corridorSide === v0 ? -1 : 1; // from the far wall toward the corridor
     const farWall = corridorSide === v0 ? v1 : v0;
-    const perBench = Math.floor((v1 - v0 - WALKWAY - 0.1 + DESK_GAP) / (DESK_WIDTH + DESK_GAP));
+    const usable = v1 - v0 - WALKWAY - 0.1;
+    const perBench = Math.min(
+      POD_ACROSS,
+      Math.floor((usable + DESK_GAP) / (DESK_WIDTH + DESK_GAP)),
+    );
     if (perBench < 1) continue;
+    // the pod sits in the middle of the band, with open floor round it
+    const inset = 0.1 + (usable - (perBench * (DESK_WIDTH + DESK_GAP) - DESK_GAP)) / 2;
 
     for (let from = 0; from < frame.cells; ) {
       if (taken[band][from]) {
@@ -490,7 +496,7 @@ export function planFloor(building: CampusBuilding, floor: number): PlannedRoom[
           const du = u0 + side * (DESK_DEPTH + DESK_GAP);
           // from the walkway in, so desk 01 is the one you reach first
           for (let k = perBench - 1; k >= 0; k--) {
-            const vNear = farWall + inward * (0.1 + k * (DESK_WIDTH + DESK_GAP));
+            const vNear = farWall + inward * (inset + k * (DESK_WIDTH + DESK_GAP));
             const vFar = vNear + inward * DESK_WIDTH;
             const rect = frame.rect(du, du + DESK_DEPTH, Math.min(vNear, vFar), Math.max(vNear, vFar));
             if (rect) area?.desks.push({ rect, aisle: k === perBench - 1 });

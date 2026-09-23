@@ -367,3 +367,18 @@ a dark device, which the server can't know about.
   1440×900 (Marie Reay L1, Birch L1, a desk's dialog), 390×844 (floor, then
   the panel opened on a study area) and 1920×1080 (Hanna Neumann L2).
   Fixed the dialog saying "book this room" on a desk.
+- User, after the merge: "i think you've dramtically overguessed the number
+  of desks. you can roughly triple thr number of labs/meeting rooms and cut
+  number of desks and study spaces by like 1/5 (20% the current amount)".
+  That overturns my reading of "mostly desks/study spaces" as benches filling
+  every free metre. The baseline was 10,552 desks and 116 rooms (97 meeting
+  rooms, 19 labs).
+- TDD: replaced the "mostly desks" contract with two new ones. Every floor
+  gets ≥3 meeting rooms, ≤21 rooms and some study space, and the campus gets
+  300–420 rooms and 1,700–2,500 desks. Both went red (116 rooms, and a floor
+  with 2 meeting rooms), then green.
+- Generator: 6–12 meeting rooms and 1–3 labs a floor, with rooms allowed up
+  to 60% of the frontage (was 30%). Desks are now pods of four (two facing
+  two) centred in the band, spaced 6.4 m apart instead of full-depth
+  benches every 3.4 m. The result is 356 rooms (295 meeting rooms, 61 labs,
+  3.1×) and 2,284 desks (21.6%).
