@@ -1,0 +1,81 @@
+---
+// The panel that floats over the map: a sidebar on a wide screen, a sheet
+// along the bottom on a phone. Its head (where you are, the date, the one
+// choice this stage is about) always shows; its body (the full list) can be
+// folded away to give the map the room, and starts folded on a phone.
+//
+// `data-occludes` tells the scene this covers part of the canvas, so it
+// frames the campus in whatever is left rather than behind the panel.
+
+interface Props {
+  /** accessible name for the panel */
+  label: string;
+  /** what the fold button shows and hides, e.g. "buildings" */
+  noun: string;
+  /** start folded on every screen size, not just a phone */
+  folded?: boolean;
+}
+
+const { label, noun, folded = false } = Astro.props;
+---
+
+<section
+  class="mappanel"
+  data-panel
+  data-occludes
+  data-panel-state={folded ? "closed" : undefined}
+  aria-label={label}
+>
+  <div class="mappanel-head">
+    <slot name="head" />
+  </div>
+  <button
+    class="mappanel-toggle"
+    type="button"
+    data-panel-toggle
+    aria-controls="mappanel-body"
+    aria-expanded="true"
+    hidden
+  >
+    <span class="when-open">Hide {noun}</span>
+    <span class="when-closed">Show {noun}</span>
+  </button>
+  <div class="mappanel-body" id="mappanel-body">
+    <slot />
+  </div>
+</section>
+
+<script>
+  // The fold. Whether the body shows by default is the stylesheet's call
+  // (folded on a phone, open on a desktop), so the button reads the state
+  // off the page rather than assuming it, then pins an explicit one.
+  function wire(): void {
+    const panel = document.querySelector<HTMLElement>("[data-panel]");
+    const toggle = panel?.querySelector<HTMLButtonElement>("[data-panel-toggle]");
+    const body = panel?.querySelector<HTMLElement>(".mappanel-body");
+    if (!panel || !toggle || !body) return;
+
+    const isOpen = () => getComputedStyle(body).display !== "none";
+    const reflect = () => {
+      const open = isOpen();
+      toggle.setAttribute("aria-expanded", String(open));
+      panel.dataset.shown = open ? "open" : "closed";
+    };
+
+    toggle.hidden = false;
+    reflect();
+    toggle.addEventListener("click", () => {
+      panel.dataset.panelState = isOpen() ? "closed" : "open";
+      reflect();
+      // the map re-frames into whatever the panel now leaves uncovered
+      window.dispatchEvent(new Event("map:overlays"));
+    });
+    // the default flips between phone and desktop widths
+    window.addEventListener("resize", reflect);
+    document.addEventListener("astro:before-swap", () => window.removeEventListener("resize", reflect), {
+      once: true,
+    });
+  }
+
+  document.addEventListener("astro:page-load", wire);
+</script>

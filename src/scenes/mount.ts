@@ -4,8 +4,8 @@ import type { SceneState } from "./campus";
 //
 // The scene is enhancement: every page it appears on is already complete
 // without it. So this bails out quietly — leaving the container hidden and
-// the server-rendered list or floor plan in charge — whenever the scene
-// would be unwelcome or impossible:
+// the server-rendered lists, floor plan and dialog laid out as an ordinary
+// page — whenever the scene would be unwelcome or impossible:
 //
 //   * the visitor asked for reduced motion
 //   * the browser can't give us a WebGL context
@@ -24,6 +24,19 @@ declare global {
   interface Window {
     __campusScene?: Scene | "loading" | "unavailable";
   }
+}
+
+/** The container the live scene draws into. transition:persist carries it
+ *  across a navigation only when BOTH pages have one: pass through a page
+ *  without the map (sign-in, My bookings, About) and the router drops it, so
+ *  the next map page arrives with a fresh container — and a scene still
+ *  drawing into the old, detached canvas, invisibly, forever. */
+let mountedOn: HTMLElement | undefined;
+
+function release(): void {
+  if (typeof window.__campusScene === "object") window.__campusScene.dispose();
+  window.__campusScene = undefined;
+  mountedOn = undefined;
 }
 
 function readState(): SceneState | undefined {
@@ -57,9 +70,14 @@ async function sync(): Promise<void> {
   if (window.__campusScene === "unavailable") return;
 
   if (typeof window.__campusScene === "object") {
-    container.hidden = false;
-    window.__campusScene.update(state);
-    return;
+    if (container === mountedOn) {
+      container.hidden = false;
+      window.__campusScene.update(state);
+      return;
+    }
+    // a new container: the old scene has nowhere visible to draw, so let it
+    // go and build again on this one
+    release();
   }
 
   if (window.__campusScene === "loading") return;
@@ -69,20 +87,34 @@ async function sync(): Promise<void> {
   }
 
   window.__campusScene = "loading";
+  // Take the window now, before three.js has loaded: showing the container
+  // is what switches the page into its map layout, and doing it once the
+  // module arrives would lay the page out as a list and then rearrange it
+  // under the visitor. Until the first frame, the container says it's
+  // loading. It also has to be showing BEFORE the scene is constructed: the
+  // scene sizes its camera from the container, and a display:none element
+  // measures 0×0.
+  container.hidden = false;
   try {
     const { createScene } = await import("./campus");
     const canvas = container.querySelector("canvas");
     if (!canvas) throw new Error("no canvas to draw on");
-    // Unhide BEFORE constructing: the scene sizes its camera from the
-    // container, and a display:none element measures 0×0.
-    container.hidden = false;
     const scene = createScene(canvas, container);
     window.__campusScene = scene;
+    mountedOn = container;
+    // navigated off the map while three.js was still loading: start again on
+    // whatever the page has now, if anything
+    if (!container.isConnected) {
+      release();
+      void sync();
+      return;
+    }
     scene.update(readState() ?? state);
   } catch (error) {
-    // a campus that won't draw is not a broken page — say so once and let
-    // the list underneath do the job
+    // a campus that won't draw is not a broken page — say so once, hide the
+    // map again, and the page lays itself out as the lists it already has
     window.__campusScene = "unavailable";
+    container.hidden = true;
     console.warn("campus scene unavailable, falling back to the list", error);
   }
 }
@@ -90,4 +122,9 @@ async function sync(): Promise<void> {
 export function mountScene(): void {
   void sync();
   document.addEventListener("astro:page-load", () => void sync());
+  // and on landing somewhere without the map, give the GPU context and the
+  // live event stream back rather than holding them for a canvas that's gone
+  document.addEventListener("astro:after-swap", () => {
+    if (mountedOn && !mountedOn.isConnected) release();
+  });
 }

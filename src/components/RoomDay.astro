@@ -1,0 +1,94 @@
+---
+import type { BookingRow } from "../lib/booking";
+import { roomUrl } from "../lib/links";
+import { SLOTS, slotTime } from "../lib/slots";
+
+// One room's day, as two rows of half hours — 08:00 to 14:00, then 14:00 to
+// 20:00 — which is narrow enough to sit in a dialog on a phone without
+// scrolling sideways, and still one cell per half hour you could book.
+//
+// Every free cell is a LINK that reloads the dialog with that start time
+// chosen, so it works with JavaScript off; with it on, the dialog's script
+// just sets the form instead. Colour never carries the state alone: taken
+// cells are hatched, yours are inked, and every cell says what it is in
+// text a screen reader reads out.
+
+interface Props {
+  buildingSlug: string;
+  code: string;
+  date: string;
+  bookings: BookingRow[];
+  /** slots before this one today have been and gone; -1 for a future date */
+  pastBefore: number;
+  userId?: number;
+  /** the half-open run the form currently has chosen */
+  picked?: [number, number];
+}
+
+const { buildingSlug, code, date, bookings, pastBefore, userId, picked } = Astro.props;
+
+type Cell =
+  | { slot: number; state: "free"; href: string; label: string }
+  | { slot: number; state: "busy" | "mine" | "past"; label: string };
+
+const cells: Cell[] = Array.from({ length: SLOTS }, (_, slot) => {
+  const booking = bookings.find((b) => b.startSlot <= slot && b.endSlot > slot);
+  if (booking) {
+    const mine = userId !== undefined && booking.userId === userId;
+    return {
+      slot,
+      state: mine ? "mine" : "busy",
+      label: `${slotTime(slot)} ${mine ? "yours" : "taken"}: ${booking.purpose}`,
+    };
+  }
+  if (slot < pastBefore) return { slot, state: "past", label: `${slotTime(slot)} gone` };
+  return {
+    slot,
+    state: "free",
+    href: `${roomUrl(buildingSlug, code, { date, start: slot })}#book`,
+    label: `${slotTime(slot)} free — start a booking here`,
+  };
+});
+
+const half = SLOTS / 2;
+const rows = [cells.slice(0, half), cells.slice(half)];
+const isPicked = (slot: number) => picked !== undefined && slot >= picked[0] && slot < picked[1];
+---
+
+<div class="roomday" data-roomday>
+  {
+    rows.map((row) => (
+      <div class="roomday-row">
+        <ol class="roomday-slots" aria-label={`${slotTime(row[0].slot)} to ${slotTime(row[0].slot + half)}`}>
+          {row.map((cell) => (
+            <li>
+              {cell.state === "free" ? (
+                <a
+                  class="slot"
+                  data-state="free"
+                  data-slot={cell.slot}
+                  data-picked={isPicked(cell.slot) ? "" : undefined}
+                  href={cell.href}
+                >
+                  <span class="visually-hidden">{cell.label}</span>
+                </a>
+              ) : (
+                <span class="slot" data-state={cell.state} data-slot={cell.slot}>
+                  <span class="visually-hidden">{cell.label}</span>
+                </span>
+              )}
+            </li>
+          ))}
+        </ol>
+        {/* an hour mark under every pair of half hours */}
+        <div class="roomday-ticks" aria-hidden="true">
+          {row
+            .filter((cell) => cell.slot % 2 === 0)
+            .map((cell) => (
+              <span>{slotTime(cell.slot)}</span>
+            ))}
+        </div>
+      </div>
+    ))
+  }
+</div>

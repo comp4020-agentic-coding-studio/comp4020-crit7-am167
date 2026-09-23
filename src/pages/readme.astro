@@ -6,13 +6,12 @@ import { currentUser } from "../lib/auth";
 import * as readme from "../../README.md";
 
 const user = currentUser(Astro.cookies);
-const title = readme.getHeadings().find((h) => h.depth === 1)?.text ?? "README";
 
 // README images are committed to public/ and linked relatively (public/x.png)
 // so they render on GitHub; here they're served from the site root.
 const html = (await readme.compiledContent()).replace(/(src|href)="public\//g, '$1="/');
 ---
 
-<Shell title={`${title} · Book ANU Acton`} current="about" user={user ?? undefined}>
+<Shell title="About · ANU Room Booking" current="about" user={user ?? undefined}>
   <article class="prose" set:html={html} />
 </Shell>

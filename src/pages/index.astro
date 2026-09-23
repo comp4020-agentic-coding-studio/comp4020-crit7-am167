@@ -1,6 +1,7 @@
 ---
-import CampusScene from "../components/CampusScene.astro";
 import DateStrip from "../components/DateStrip.astro";
+import MapFrame from "../components/MapFrame.astro";
+import MapPanel from "../components/MapPanel.astro";
 import Shell from "../components/Shell.astro";
 import { currentUser } from "../lib/auth";
 import { campusOverview, errorMessage } from "../lib/booking";
@@ -41,69 +42,60 @@ const sceneData = overview.map((entry) => ({
 const error = errorMessage(params.get("error"));
 ---
 
-<Shell title="Book a room · ANU Acton" current="map" user={user ?? undefined}>
-  <div class="page-head">
-    <div>
-      <h1>Find a room at ANU Acton</h1>
-      <p class="lede">
-        Every bookable room on campus, on one map. Pick a building to drop into its floors — or
-        scroll past the map, where the same thing is a list.
-      </p>
-    </div>
-    <DateStrip date={date} action="/" keep={keep} />
-  </div>
+<Shell title="Find a room · ANU Room Booking" current="map" user={user ?? undefined} layout="map">
+  <MapFrame stage="campus" scene={{ date, buildings: sceneData }}>
+    <MapPanel label="Find a room" noun="buildings">
+      <Fragment slot="head">
+        <h1 class="mappanel-title">Find a room</h1>
+        <p class="mappanel-sub">
+          {totalRooms} room{totalRooms === 1 ? "" : "s"} in {matching.length} building{
+            matching.length === 1 ? "" : "s"
+          }{filtered ? " match" : ""}<span class="live-only"> · pick one on the map</span>
+        </p>
+        <DateStrip date={date} action="/" keep={keep} />
+        {error && <p class="notice notice-error">{error}</p>}
+      </Fragment>
 
-  {error && <p class="notice notice-error">{error}</p>}
-
-  <div class="stack">
-    <CampusScene date={date} buildings={sceneData} />
-
-    <form class="panel panel-pad filters" method="get" action="/">
-      <input type="hidden" name="date" value={date} />
-      <div class="field">
-        <label for="cap">Seats</label>
-        <select id="cap" name="cap">
+      <form class="filters" method="get" action="/">
+        <input type="hidden" name="date" value={date} />
+        <div class="field">
+          <label for="cap">Seats</label>
+          <select id="cap" name="cap">
+            {
+              CAPACITIES.map((n) => (
+                <option value={n} selected={n === capacity}>
+                  {n === 0 ? "Any size" : `${n} or more`}
+                </option>
+              ))
+            }
+          </select>
+        </div>
+        <div class="field">
+          <label for="feature">Needs</label>
+          <select id="feature" name="feature">
+            <option value="" selected={feature === null}>Anything</option>
+            {
+              FEATURES.map((name) => (
+                <option value={name} selected={name === feature}>
+                  {name}
+                </option>
+              ))
+            }
+          </select>
+        </div>
+        <div class="field filters-actions">
+          <button class="btn btn-sm" type="submit">Apply</button>
           {
-            CAPACITIES.map((n) => (
-              <option value={n} selected={n === capacity}>
-                {n === 0 ? "Any size" : `${n} or more`}
-              </option>
-            ))
+            filtered && (
+              <a class="btn btn-quiet btn-sm" href={withQuery("/", { date })}>
+                Clear
+              </a>
+            )
           }
-        </select>
-      </div>
-      <div class="field">
-        <label for="feature">Needs</label>
-        <select id="feature" name="feature">
-          <option value="" selected={feature === null}>Anything</option>
-          {
-            FEATURES.map((name) => (
-              <option value={name} selected={name === feature}>
-                {name}
-              </option>
-            ))
-          }
-        </select>
-      </div>
-      <div class="field filters-actions">
-        <button class="btn" type="submit">Apply</button>
-        {filtered && <a class="btn btn-quiet" href={withQuery("/", { date })}>Clear</a>}
-      </div>
-      <p class="filters-count muted">
-        {totalRooms} room{totalRooms === 1 ? "" : "s"} across {matching.length} building{
-          matching.length === 1 ? "" : "s"
-        }
-      </p>
-    </form>
+        </div>
+      </form>
 
-    <section class="stack-sm">
-      <div class="section-head">
-        <h2>Buildings · {dateLabel(date)}</h2>
-        <ul class="legend">
-          <li class="muted">Each building has its own colour · the bar shows how free it is</li>
-        </ul>
-      </div>
-
+      <h2 class="mappanel-section">Buildings · {dateLabel(date)}</h2>
       {
         matching.length === 0 ? (
           <div class="empty">
@@ -113,19 +105,20 @@ const error = errorMessage(params.get("error"));
             </a>
           </div>
         ) : (
-          <ul class="cards">
+          <ul class="places">
             {matching.map((entry) => {
               const pct = entry.total === 0 ? 0 : Math.round((entry.free / entry.total) * 100);
               return (
                 <li>
                   <a
-                    class="card"
+                    class="place"
                     href={buildingUrl(entry.building.slug, { date })}
-                    data-building={entry.building.slug}
+                    data-map-hover={`building:${entry.building.slug}`}
                     style={`${swatchVars(entry.building.code)};--fill:${pct}%`}
                   >
-                    <div class="card-banner">
-                      <span class="code">{entry.building.code}</span>
+                    <span class="place-code code">{entry.building.code}</span>
+                    <span class="place-name">{entry.building.name}</span>
+                    <span class="place-stat">
                       {entry.yours > 0 ? (
                         <span class="pill pill-mine">Yours</span>
                       ) : pct === 0 ? (
@@ -133,19 +126,15 @@ const error = errorMessage(params.get("error"));
                       ) : (
                         <span class="pill">{pct}% free</span>
                       )}
-                    </div>
-                    <p class="card-meta">
-                      <strong>{entry.building.name}</strong>
-                    </p>
-                    <p class="card-meta muted">
+                    </span>
+                    <span class="place-meta muted">
                       {entry.matching} room{entry.matching === 1 ? "" : "s"} ·{" "}
-                      {entry.building.levels} levels ·{" "}
                       {entry.nextFree === undefined
                         ? "nothing free today"
                         : `next free ${slotTime(entry.nextFree)}`}
-                    </p>
-                    {/* the same figure as the pill above, as a proportion —
-                        so availability never depends on telling hues apart */}
+                    </span>
+                    {/* the same figure as the pill, as a proportion — so
+                        availability never depends on telling hues apart */}
                     <span class="meter" aria-hidden="true" />
                   </a>
                 </li>
@@ -154,11 +143,14 @@ const error = errorMessage(params.get("error"));
           </ul>
         )
       }
-    </section>
 
-    <p class="muted" style="font-size:0.8rem">
-      A day runs 08:00–20:00 in {SLOTS} half-hour slots. Bookings are live: if someone takes a room while
-      you're looking, the map re-tints without a reload.
-    </p>
-  </div>
+      <p class="mappanel-foot muted">
+        Each building has its own colour; the bar is how free it is. A day runs 08:00–20:00 in {
+          SLOTS
+        } half hours, and the map re-tints live when someone books. Floor layouts, rooms and
+        bookings are invented: this is a COMP4020 prototype, not an ANU service.{" "}
+        <a href="/readme/">What this is</a>.
+      </p>
+    </MapPanel>
+  </MapFrame>
 </Shell>

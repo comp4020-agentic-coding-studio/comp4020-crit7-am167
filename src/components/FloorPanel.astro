@@ -1,0 +1,164 @@
+---
+import { bookingsOn, levelsOf, roomsInBuilding } from "../lib/booking";
+import { labelFor, type RoomKind } from "../lib/floorplan";
+import { buildingUrl, roomSlug, roomUrl } from "../lib/links";
+import type { Building, User } from "../lib/schema";
+import { SLOTS, currentSlot, dateLabel, today } from "../lib/slots";
+import DateStrip from "./DateStrip.astro";
+import FloorPlan from "./FloorPlan.astro";
+import MapPanel from "./MapPanel.astro";
+
+// The floor stage's panel: which level you're on, the other levels one tap
+// away, and every room on this one with its day drawn as a strip — so you
+// can scan the floor for a free afternoon without opening each room.
+//
+// The same panel sits behind a room's dialog, where the dialog carries the
+// page's heading and date, so both are switchable here.
+
+interface Props {
+  building: Building;
+  floor: number;
+  date: string;
+  user?: User;
+  /** the room whose dialog is open over this level, if any */
+  selected?: string;
+  /** false behind a room dialog, which owns the page's <h1> */
+  primary?: boolean;
+}
+
+const { building, floor, date, user, selected, primary = true } = Astro.props;
+
+const levels = levelsOf(building, date);
+const here = levels[floor];
+const rooms = roomsInBuilding(building.id).filter((room) => room.floor === floor);
+const bookings = bookingsOn(
+  rooms.map((room) => room.id),
+  date,
+);
+const pastBefore = date === today() ? currentSlot() : -1;
+
+type SlotState = "free" | "busy" | "mine" | "past";
+const rows = rooms.map((room) => {
+  const slots: SlotState[] = new Array(SLOTS).fill("free");
+  for (let s = 0; s < Math.min(pastBefore, SLOTS); s++) slots[s] = "past";
+  for (const booking of bookings.filter((b) => b.roomId === room.id)) {
+    const mine = user !== undefined && booking.userId === user.id;
+    for (let s = booking.startSlot; s < booking.endSlot && s < SLOTS; s++) {
+      slots[s] = mine ? "mine" : "busy";
+    }
+  }
+  return {
+    room,
+    slug: roomSlug(room.code),
+    slots,
+    free: slots.filter((state) => state === "free").length,
+    yours: slots.includes("mine"),
+  };
+});
+
+const pct = (free: number, capacity: number) => Math.round((free / Math.max(1, capacity)) * 100);
+const Heading = primary ? "h1" : "h2";
+---
+
+<MapPanel label={`${building.name}, level ${floor}`} noun="rooms" folded={!primary}>
+  <Fragment slot="head">
+    <ol class="crumbs">
+      <li><a href={`/?date=${date}`}>Campus</a></li>
+      <li><a href={buildingUrl(building.slug, { date })}>{building.name}</a></li>
+      <li aria-current="page">Level {floor}</li>
+    </ol>
+    <Heading class="mappanel-title">
+      {building.name}, level {floor}
+    </Heading>
+    <p class="mappanel-sub">
+      {rooms.length} room{rooms.length === 1 ? "" : "s"}
+      {here && ` · ${pct(here.free, here.capacity)}% free ${dateLabel(date)}`}
+      <span class="live-only"> · pick one on the map</span>
+    </p>
+    <nav class="levelchips" aria-label={`Levels of ${building.name}`}>
+      {
+        [...levels].reverse().map((entry) => (
+          <a
+            href={buildingUrl(building.slug, { date, floor: entry.level })}
+            aria-current={entry.level === floor ? "page" : undefined}
+          >
+            L{entry.level}
+            <span class="visually-hidden">
+              , {entry.rooms} rooms, {pct(entry.free, entry.capacity)}% free
+            </span>
+          </a>
+        ))
+      }
+    </nav>
+    {primary && <DateStrip date={date} action={buildingUrl(building.slug)} keep={{ floor }} />}
+  </Fragment>
+
+  {
+    rows.length === 0 ? (
+      <div class="empty">
+        <p>No bookable rooms on this level.</p>
+      </div>
+    ) : (
+      <>
+        <div class="section-head">
+          <h2 class="mappanel-section">Rooms · {dateLabel(date)}</h2>
+          <ul class="legend">
+            <li>
+              <span class="swatch swatch-free" /> Free
+            </li>
+            <li>
+              <span class="swatch swatch-busy" /> Taken
+            </li>
+            <li>
+              <span class="swatch swatch-mine" /> Yours
+            </li>
+            {pastBefore > 0 && (
+              <li>
+                <span class="swatch swatch-gone" /> Already been
+              </li>
+            )}
+          </ul>
+        </div>
+        <ul class="roomlist">
+          {rows.map(({ room, slug, slots, free, yours }) => (
+            <li>
+              <a
+                class="roomrow"
+                href={roomUrl(building.slug, room.code, { date })}
+                aria-current={slug === selected ? "true" : undefined}
+                data-map-hover={`room:${slug}`}
+              >
+                <span class="roomrow-code code">{room.code}</span>
+                <span class="roomrow-free">
+                  {yours ? "Yours · " : ""}
+                  {free === 0 ? "Full" : `${free / 2} h free`}
+                </span>
+                <span class="roomrow-meta muted">
+                  {labelFor(room.kind as RoomKind)} · {room.capacity} seats
+                </span>
+                {/* the day, 08:00 to 20:00, one tick per half hour; the
+                    text beside it says the same thing in words */}
+                <span class="daybar" aria-hidden="true">
+                  {slots.map((state) => (
+                    <i data-state={state} />
+                  ))}
+                </span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </>
+    )
+  }
+
+  {/* the flat plan is what a visitor without the 3D map sees instead of it */}
+  <div class="fallback-only">
+    <FloorPlan
+      building={building}
+      rooms={rooms}
+      bookings={bookings}
+      date={date}
+      userId={user?.id}
+    />
+  </div>
+</MapPanel>

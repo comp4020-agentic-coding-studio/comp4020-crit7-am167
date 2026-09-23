@@ -1,0 +1,49 @@
+---
+import { ATTRIBUTION } from "../data/campus";
+import CampusScene from "./CampusScene.astro";
+
+// The window the whole app lives in. The 3D campus fills it; everything
+// else — the panel with the building, level and room lists, and a room's
+// dialog — floats over the map rather than sitting below it, so drilling
+// down is a camera move, never a scroll.
+//
+// `data-stage` says which step of the drill-down this page is, for the
+// stylesheet and for anyone reading the markup: campus, a building's levels,
+// one level's rooms, or a room's dialog open over that level.
+//
+// Without a live map (no WebGL, reduced motion, still loading) the same
+// markup lays itself out as an ordinary page: the panel flows full width and
+// the dialog sits at the top of it. The switch is pure CSS — whether the
+// persisted scene container is showing — so it survives the router swapping
+// everything else out.
+
+type SceneProps = {
+  date: string;
+  buildings?: Array<{ slug: string; free: number; matching: number; yours: number }>;
+  focus?: string;
+  levels?: Array<{ level: number; rooms: number; free: number }>;
+  floor?: number;
+  selected?: string;
+};
+
+interface Props {
+  stage: "campus" | "building" | "floor" | "room";
+  scene: SceneProps;
+  /** building colours, as custom properties */
+  style?: string;
+}
+
+const { stage, scene, style } = Astro.props;
+---
+
+<div class="mapframe" data-stage={stage} style={style}>
+  <CampusScene {...scene} />
+  <slot />
+  <p class="map-credit">
+    <span class="map-credit-more">Footprints{" "}</span>{ATTRIBUTION},{" "}
+    <a href="https://www.openstreetmap.org/copyright" rel="license noreferrer">ODbL</a>
+    <span class="map-credit-more">
+      · rooms and bookings invented · <a href="/readme/">not an ANU service</a>
+    </span>
+  </p>
+</div>

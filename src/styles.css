@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
-   Book — ANU Acton.
+   ANU Room Booking — ANU Acton.
 
    Bright, warm and colourful, but institutional rather than loud: the colour
    comes from the campus, not from the furniture. Paper-warm ground, hairline
@@ -8,8 +8,8 @@
 
    The colour rule the whole file obeys: HUE MEANS WHICH BUILDING, FILL MEANS
    HOW FREE IT IS (see src/lib/palette.ts). Everything belonging to a building
-   carries its --hue, so Marie Reay is the same colour on the map, on its
-   card, down the side of its grid rows and across its floor plan.
+   carries its --hue, so Marie Reay is the same colour on the map, down the
+   edge of its rows in the panel, across its floor plan and its room dialog.
    Availability is never a hue — it is a painted proportion and a number, so
    it reads the same whatever a person's colour vision.
 --------------------------------------------------------------------------- */
@@ -110,29 +110,33 @@ img {
 
 .brand {
   display: inline-flex;
-  align-items: baseline;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 0.55rem;
   color: var(--ink);
-  font-weight: 700;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
+  font-weight: 550;
   letter-spacing: -0.02em;
   text-decoration: none;
+  white-space: nowrap;
 }
 
-.brand::before {
-  content: "";
-  align-self: center;
-  width: 0.7rem;
-  height: 0.7rem;
-  border-radius: 50%;
-  background: var(--gold);
-  box-shadow: 0 0 0 3px rgba(240, 199, 94, 0.3);
+.brand:hover {
+  color: var(--ink);
 }
 
-.brand span {
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: var(--ink-3);
+.brand-mark {
+  flex: none;
+  width: 1.6rem;
+  height: 1.8rem;
+  fill: var(--ink);
+}
+
+.brand-mark .brand-book {
+  fill: var(--gold);
+}
+
+.brand-name b {
+  font-weight: 800;
 }
 
 .masthead nav {
@@ -182,6 +186,52 @@ img {
   font-family: var(--mono);
   font-size: 0.78rem;
   color: var(--ink-3);
+}
+
+.whoami-initials {
+  display: none;
+  place-items: center;
+  width: 2.15rem;
+  height: 2.15rem;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--gold);
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+
+/* A phone: who you are sits on the brand's row and the nav gets a row of
+   its own, so the masthead is two rows signed in or out — not three, which
+   is a strip of map the full-window map pages can't spare. */
+@media (max-width: 559px) {
+  .masthead .spacer {
+    order: 1;
+  }
+
+  .masthead .whoami,
+  .masthead > .btn {
+    order: 2;
+  }
+
+  .masthead nav {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  /* the full name stays for a screen reader; the eye gets initials */
+  .whoami-who {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .whoami-initials {
+    display: inline-grid;
+  }
 }
 
 main {
@@ -513,59 +563,22 @@ select {
   background: repeating-linear-gradient(-45deg, var(--taken) 0 2px, transparent 2px 5px);
 }
 
-/* --- the day grid -------------------------------------------------------- */
-
-.grid-scroll {
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  padding-bottom: 0.4rem;
+/* the flat "already been" of a level's day strips */
+.swatch-gone {
+  background: #e8e2d5;
+  border-color: transparent;
 }
 
-.daygrid {
-  --cell: 2.1rem;
-  min-width: 36rem;
-  border-collapse: separate;
-  border-spacing: 2px 3px;
-  width: 100%;
-  font-variant-numeric: tabular-nums;
-}
+/* --- half hours ---------------------------------------------------------- */
 
-.daygrid caption {
-  text-align: left;
-  padding-bottom: 0.6rem;
-  font-size: 0.85rem;
-  color: var(--ink-2);
-}
-
-.daygrid th {
-  font-weight: 600;
-  font-size: 0.7rem;
-  text-align: left;
-  padding: 0 0 0.3rem;
-  color: var(--ink-3);
-}
-
-.daygrid th.rowhead {
-  width: 9.5rem;
-  padding: 0.2rem 0.7rem 0.2rem 0.6rem;
-  vertical-align: middle;
-  font-size: 0.85rem;
-  color: var(--ink);
-  /* the building's own colour, down the side of every one of its rows */
-  border-left: 4px solid var(--hue);
-  border-radius: 2px;
-}
-
-.daygrid td {
-  padding: 0;
-  height: var(--cell);
-}
+/* One cell per half hour, wherever a day is drawn: a room's day in its
+   dialog, and the thin strip under every room in a level's list. */
 
 .slot {
   display: block;
   width: 100%;
-  height: var(--cell);
-  border: 1px solid var(--line);
+  height: 2.2rem;
+  border: 1px solid var(--line-2);
   border-radius: 3px;
   background: var(--card);
   cursor: pointer;
@@ -609,11 +622,69 @@ select {
   cursor: not-allowed;
 }
 
-.daygrid tfoot th {
-  padding-top: 0.35rem;
-  font-size: 0.7rem;
-  text-align: center;
+/* the run the booking form has chosen */
+.slot[data-picked] {
+  background: var(--gold);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+
+.swatch-picked {
+  background: var(--gold);
+  border: 2px solid var(--ink);
+}
+
+/* a room's day: 08:00–14:00 over 14:00–20:00, narrow enough for a phone */
+.roomday {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.roomday-slots {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.roomday-ticks {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin-top: 0.2rem;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
   color: var(--ink-3);
+}
+
+/* the same day, a hair tall, under a room in a level's list */
+.daybar {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  gap: 1px;
+  height: 0.5rem;
+}
+
+.daybar i {
+  border-radius: 1px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+
+.daybar i[data-state="busy"] {
+  background: var(--hue);
+  box-shadow: none;
+}
+
+.daybar i[data-state="mine"] {
+  background: var(--ink);
+  box-shadow: none;
+}
+
+.daybar i[data-state="past"] {
+  background: #e8e2d5;
+  box-shadow: none;
 }
 
 /* --- cards --------------------------------------------------------------- */
@@ -658,20 +729,6 @@ select {
   box-shadow: var(--shadow-lift);
 }
 
-.card-banner {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.15rem;
-}
-
-.card-banner .code {
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: var(--hue);
-  letter-spacing: -0.01em;
-}
 
 .card-title {
   display: flex;
@@ -863,91 +920,99 @@ select {
   outline: none;
 }
 
-/* --- floor switcher ------------------------------------------------------ */
+/* --- the map ------------------------------------------------------------- */
 
-.floors {
+/* A map page is the window: the masthead on top, the map filling the rest,
+   and the panel and a room's dialog floating on it. Nothing scrolls but the
+   panel's own list.
+
+   All of that only applies while the map is LIVE — the persisted scene
+   container is showing. Without it (no WebGL, reduced motion, the module
+   still loading) the same markup is an ordinary page: the panel flows full
+   width, a room's dialog sits at the top, and the page scrolls. The switch
+   is `:has()` on the scene container rather than a class set by script,
+   because the router re-renders everything around the container on every
+   navigation and a class would flash off in between. */
+
+.map-body {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.floors a {
-  display: inline-flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-width: 3.7rem;
-  min-height: 2.75rem;
-  padding: 0.3rem 0.6rem;
-  border: 1px solid var(--line-2);
-  border-radius: var(--radius-sm);
-  background: var(--card);
-  color: var(--ink-2);
-  text-decoration: none;
-  font-size: 0.78rem;
-  line-height: 1.2;
+  min-height: 100dvh;
 }
 
-.floors a:hover {
-  border-color: var(--hue);
-  color: var(--ink);
+.map-main {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: none;
+  padding: 0;
 }
 
-.floors a[aria-current="page"] {
-  background: var(--hue);
-  border-color: transparent;
-  color: var(--on-hue);
+.mapframe {
+  position: relative;
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  width: 100%;
+  max-width: var(--shell);
+  margin-inline: auto;
+  padding: var(--gap) clamp(0.9rem, 3vw, 1.6rem) calc(2rem + env(safe-area-inset-bottom, 0px));
 }
-
-.floors b {
-  font-family: var(--mono);
-  font-size: 0.95rem;
-  font-weight: 700;
-}
-
-.floors small {
-  font-size: 0.68rem;
-  opacity: 0.85;
-}
-
-/* --- the 3D campus ------------------------------------------------------- */
 
 .scene {
   position: relative;
-  margin: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
   overflow: hidden;
-  background: var(--paper-2);
+  background: #f2ede2;
 }
 
 .scene canvas {
   display: block;
   width: 100%;
+  height: 100%;
   cursor: grab;
+  /* the map takes every gesture: one finger orbits, two pinch */
+  touch-action: none;
+}
+
+.scene-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 0.9rem;
+  pointer-events: none;
+}
+
+.scene[data-ready] .scene-loading {
+  display: none;
 }
 
 .scene-hud {
   position: absolute;
+  z-index: 4;
   top: 0.75rem;
   left: 0.75rem;
-  max-width: calc(100% - 1.5rem);
-  padding: 0.32rem 0.65rem;
+  max-width: calc(100% - 9rem);
+  padding: 0.32rem 0.7rem;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.95);
   border: 1px solid var(--line-2);
   box-shadow: var(--shadow);
   font-size: 0.82rem;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   pointer-events: none;
 }
 
 .scene-tools {
   position: absolute;
+  z-index: 4;
   top: 0.75rem;
   right: 0.75rem;
   display: flex;
@@ -955,22 +1020,542 @@ select {
 }
 
 .scene-tools .btn {
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.95);
 }
 
-.scene-note {
-  position: absolute;
-  left: 0.9rem;
-  bottom: 0.65rem;
+.map-credit {
   margin: 0;
   font-size: 0.72rem;
   color: var(--ink-3);
-  pointer-events: none;
 }
 
-@media (max-width: 640px) {
-  .scene-note {
+.map-credit a {
+  color: inherit;
+}
+
+/* --- the panel ----------------------------------------------------------- */
+
+.mappanel {
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lift);
+  min-height: 0;
+}
+
+.mappanel-head {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.9rem 1rem 0.8rem;
+}
+
+.mappanel-head .crumbs {
+  margin: 0;
+}
+
+.mappanel-head .notice {
+  margin: 0;
+}
+
+/* an <h2> behind a room's dialog, so it has to shed the section style */
+.mappanel-title {
+  margin: 0;
+  font-size: 1.4rem;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+  text-transform: none;
+  color: var(--ink);
+}
+
+.mappanel-sub {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+
+.mappanel .datestrip {
+  display: flex;
+}
+
+.mappanel .datestrip-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mappanel-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 2.4rem;
+  padding: 0.3rem 1rem;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: var(--paper-2);
+  color: var(--ink-2);
+  font-size: 0.82rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.mappanel-toggle:hover {
+  color: var(--ink);
+  background: #efe9dc;
+}
+
+.mappanel[data-shown="open"] .when-closed,
+.mappanel[data-shown="closed"] .when-open {
+  display: none;
+}
+
+.mappanel-body {
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
+  padding: 0.9rem 1rem 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.mappanel-foot {
+  margin: 0;
+  font-size: 0.76rem;
+}
+
+/* a building, in the campus list */
+.places,
+.levels,
+.roomlist {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.place,
+.level,
+.roomrow {
+  display: grid;
+  align-items: baseline;
+  gap: 0.1rem 0.6rem;
+  padding: 0.6rem 0.75rem 0.7rem;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--hue);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: inherit;
+  text-decoration: none;
+  transition: background 120ms ease;
+}
+
+.place:hover,
+.level:hover,
+.roomrow:hover {
+  color: inherit;
+  background: var(--hue-wash);
+}
+
+.place {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.place-code {
+  font-size: 0.95rem;
+}
+
+.place-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.place-meta {
+  grid-column: 1 / -1;
+  font-size: 0.78rem;
+}
+
+.place .meter,
+.level .meter {
+  grid-column: 1 / -1;
+  margin-top: 0.35rem;
+}
+
+/* a level, in a building's list */
+.level {
+  grid-template-columns: 2.6rem minmax(0, 1fr) auto;
+}
+
+.level-name {
+  font-size: 1.05rem;
+}
+
+.level-meta {
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+
+.level-stat {
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+/* the other levels, one tap away on the floor stage */
+.levelchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.levelchips a {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.6rem;
+  min-height: 2.2rem;
+  padding: 0 0.55rem;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.levelchips a:hover {
+  border-color: var(--hue);
+  color: var(--ink);
+}
+
+.levelchips a[aria-current="page"] {
+  background: var(--hue);
+  border-color: transparent;
+  color: var(--on-hue);
+}
+
+/* a room, in a level's list */
+.roomrow {
+  grid-template-columns: minmax(0, 1fr) auto;
+  border-left-width: 1px;
+}
+
+.roomrow[aria-current="true"] {
+  border-color: var(--hue);
+  box-shadow: inset 0 0 0 1px var(--hue);
+  background: var(--hue-wash);
+}
+
+.roomrow-code {
+  font-size: 0.92rem;
+}
+
+.roomrow-free {
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--ink-2);
+}
+
+.roomrow-meta {
+  grid-column: 1 / -1;
+  font-size: 0.76rem;
+}
+
+.roomrow .daybar {
+  grid-column: 1 / -1;
+  margin-top: 0.35rem;
+}
+
+/* --- a room's dialog ----------------------------------------------------- */
+
+.roomdialog {
+  position: static;
+  display: grid;
+  gap: 0.9rem;
+  align-content: start;
+  width: auto;
+  max-width: none;
+  margin: 0;
+  padding: 1rem 1.1rem 1.2rem;
+  color: inherit;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--hue);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lift);
+}
+
+.roomdialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.roomdialog-where {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.roomdialog-head h1 {
+  font-size: 1.75rem;
+}
+
+.roomdialog-head h1:focus-visible {
+  outline: none;
+}
+
+.roomdialog-what {
+  margin: 0.2rem 0 0;
+  font-size: 0.88rem;
+  color: var(--ink-2);
+}
+
+.roomdialog-close {
+  flex: none;
+  min-width: 2.4rem;
+  min-height: 2.4rem;
+  font-size: 1rem;
+}
+
+.roomdialog .tags,
+.roomdialog .notice {
+  margin: 0;
+}
+
+.roomdialog-section {
+  display: grid;
+  gap: 0.65rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.bookform {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.bookform-note {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.rows-tight .row {
+  padding: 0.55rem 0.7rem;
+}
+
+/* --- live: the map takes the window -------------------------------------- */
+
+.map-body:has(.scene:not([hidden])) {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.map-body:has(.scene:not([hidden])) .map-main {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.mapframe:has(> .scene:not([hidden])) {
+  display: block;
+  flex: 1 1 0;
+  min-height: 0;
+  max-width: none;
+  padding: 0;
+  overflow: hidden;
+
+  & > .scene {
+    position: absolute;
+    inset: 0;
+  }
+
+  & .fallback-only {
     display: none;
+  }
+
+  & > .map-credit {
+    position: absolute;
+    z-index: 3;
+    right: 0.75rem;
+    bottom: 0.6rem;
+    max-width: calc(100% - 1.5rem);
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(252, 250, 246, 0.85);
+    font-size: 0.68rem;
+  }
+
+  /* a sidebar down the left on a wide screen */
+  & > .mappanel {
+    position: absolute;
+    z-index: 5;
+    top: 0.75rem;
+    left: 0.75rem;
+    bottom: 0.75rem;
+    width: min(23rem, calc(100% - 1.5rem));
+  }
+
+  & > .mappanel[data-panel-state="closed"] {
+    bottom: auto;
+  }
+
+  /* The list scrolls inside the panel. A phone shows no scrollbar, so a
+     shadow appears at whichever edge has more list beyond it: the two card-
+     coloured covers scroll with the content and hide the shadows at the
+     ends, the shadows stay put (Lea Verou's scrolling-shadows trick). */
+  & .mappanel-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background:
+      linear-gradient(var(--card) 30%, rgba(255, 255, 255, 0)) top / 100% 1.6rem no-repeat local,
+      linear-gradient(rgba(255, 255, 255, 0), var(--card) 70%) bottom / 100% 1.6rem no-repeat local,
+      radial-gradient(farthest-side at 50% 0, rgba(27, 24, 19, 0.16), transparent) top / 100% 0.7rem
+        no-repeat scroll,
+      radial-gradient(farthest-side at 50% 100%, rgba(27, 24, 19, 0.16), transparent) bottom /
+        100% 0.7rem no-repeat scroll;
+    background-color: var(--card);
+  }
+
+  & .mappanel[data-panel-state="closed"] .mappanel-body {
+    display: none;
+  }
+
+  /* the hover label sits just right of the panel */
+  & .scene-hud {
+    left: calc(min(23rem, 100% - 1.5rem) + 1.5rem);
+    max-width: calc(100% - min(23rem, 100% - 1.5rem) - 11rem);
+  }
+
+  /* and a room's dialog docks down the right, leaving the floor between.
+     `height: auto` matters: a <dialog> comes with `height: fit-content`,
+     which beats top + bottom, so the dialog grew to its content and the
+     frame cropped the end of it off instead of letting it scroll. */
+  & > .roomdialog {
+    position: absolute;
+    z-index: 6;
+    top: 0.75rem;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    left: auto;
+    width: min(27rem, calc(100% - 1.5rem));
+    height: auto;
+    max-height: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+/* with a dialog docked on the right, the map's own controls move over */
+.mapframe[data-stage="room"]:has(> .scene:not([hidden])) {
+  & .scene-tools,
+  & > .map-credit {
+    right: calc(min(27rem, 100% - 1.5rem) + 1.5rem);
+  }
+}
+
+/* A phone: the panel is a sheet along the bottom, folded to its head until
+   asked, and a room's dialog is a taller sheet over it. */
+@media (max-width: 759px) {
+  .mapframe:has(> .scene:not([hidden])) {
+    & > .mappanel {
+      top: auto;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: auto;
+      max-height: 72%;
+      border-radius: 18px 18px 0 0;
+      border-bottom: 0;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    & > .mappanel[data-panel-state="closed"] {
+      bottom: 0;
+    }
+
+    & .mappanel:not([data-panel-state="open"]) .mappanel-body {
+      display: none;
+    }
+
+    & .mappanel-head {
+      gap: 0.45rem;
+      padding: 0.7rem 0.9rem 0.6rem;
+    }
+
+    & .mappanel-title {
+      font-size: 1.2rem;
+    }
+
+    & > .roomdialog {
+      top: auto;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: auto;
+      height: fit-content;
+      max-height: 84%;
+      border-radius: 18px 18px 0 0;
+      border-bottom: 0;
+      padding-bottom: calc(1.2rem + env(safe-area-inset-bottom, 0px));
+    }
+
+    /* the credit and the hover label go up top, clear of the sheet; the
+       disclaimer half of the credit is in the panel and on About already */
+    & > .map-credit {
+      top: 0.75rem;
+      bottom: auto;
+      left: 0.75rem;
+      right: auto;
+      max-width: calc(100% - 9rem);
+    }
+
+    & .map-credit-more {
+      display: none;
+    }
+
+    & .scene-hud {
+      top: 2.4rem;
+      left: 0.75rem;
+      max-width: calc(100% - 1.5rem);
+    }
+  }
+
+  .mapframe[data-stage="room"]:has(> .scene:not([hidden])) {
+    & > .mappanel {
+      display: none;
+    }
+
+    & .scene-tools {
+      right: 0.75rem;
+    }
+
+    & > .map-credit {
+      right: auto;
+    }
+  }
+}
+
+/* Without the map: nothing to fold the list away for, no map to point at,
+   and a building list reads better as a grid than a column. */
+.mapframe:not(:has(> .scene:not([hidden]))) {
+  & .mappanel-toggle,
+  & .live-only {
+    display: none;
+  }
+
+  & .mappanel .datestrip {
+    max-width: 26rem;
+  }
+
+  & .places {
+    grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
   }
 }
 
@@ -1001,12 +1586,16 @@ select {
 .filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 0.6rem;
   align-items: flex-end;
 }
 
 .filters .field {
-  flex: 1 1 8rem;
+  flex: 1 1 7rem;
+}
+
+.filters select {
+  min-height: 2.3rem;
 }
 
 .filters-actions {
@@ -1015,20 +1604,8 @@ select {
   gap: 0.4rem;
 }
 
-.filters-count {
-  flex: 1 1 100%;
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--ink-2);
-  font-variant-numeric: tabular-nums;
-}
-
-@media (min-width: 720px) {
-  .filters-count {
-    flex: 0 0 auto;
-    margin-left: auto;
-    align-self: center;
-  }
+.filters-actions .btn {
+  min-height: 2.3rem;
 }
 
 /* --- readme -------------------------------------------------------------- */

@@ -1,0 +1,327 @@
+---
+import type { BookingRow, RoomRow } from "../lib/booking";
+import { labelFor, type RoomKind } from "../lib/floorplan";
+import { roomUrl } from "../lib/links";
+import type { Building, Room, User } from "../lib/schema";
+import {
+  MAX_SLOTS_PER_BOOKING,
+  SLOTS,
+  dateLabel,
+  slotRangeLabel,
+  slotTime,
+} from "../lib/slots";
+import DateStrip from "./DateStrip.astro";
+import RoomDay from "./RoomDay.astro";
+
+// A room's day, in a dialog in front of the map: when it's free, the form to
+// take some of it, and who already has the rest. It's the last step of the
+// drill-down, so it carries the page's heading.
+//
+// It's a NON-modal <dialog open>, rendered by the server: it shows with
+// JavaScript off, and with it on the map behind stays live — on a wide
+// screen you can click the next room on the floor and the dialog just
+// swaps. Closing is a real link back to the room's level (Escape follows
+// it too), so the back button and a no-JS visitor both get the same exit.
+
+interface Props {
+  building: Building;
+  room: Room | RoomRow;
+  date: string;
+  user?: User;
+  bookings: BookingRow[];
+  pastBefore: number;
+  /** the start the form should have chosen */
+  start: number;
+  error?: string;
+  justBooked?: BookingRow;
+  closeHref: string;
+}
+
+const { building, room, date, user, bookings, pastBefore, start, error, justBooked, closeHref } =
+  Astro.props;
+
+const features = JSON.parse(room.features) as string[];
+const end = Math.min(start + 2, SLOTS);
+const startOptions = Array.from({ length: SLOTS }, (_, i) => i).filter((s) => s >= pastBefore);
+const endOptions = Array.from({ length: SLOTS }, (_, i) => i + 1).filter(
+  (e) => e > start && e - start <= MAX_SLOTS_PER_BOOKING,
+);
+// what's still bookable: not held, and (today) not already been
+const freeSlots = Array.from({ length: SLOTS }, (_, s) => s).filter(
+  (s) => s >= pastBefore && !bookings.some((b) => b.startSlot <= s && b.endSlot > s),
+).length;
+const here = roomUrl(building.slug, room.code, { date });
+---
+
+<dialog
+  open
+  class="roomdialog"
+  data-room-dialog
+  data-occludes
+  data-close={closeHref}
+  aria-labelledby="room-title"
+>
+  <header class="roomdialog-head">
+    <div class="roomdialog-title">
+      <p class="roomdialog-where">{building.name} · level {room.floor}</p>
+      <h1 id="room-title" class="code" tabindex="-1">{room.code}</h1>
+      <p class="roomdialog-what">
+        {labelFor(room.kind as RoomKind)} · seats {room.capacity}
+      </p>
+    </div>
+    <a class="btn btn-quiet btn-sm roomdialog-close" href={closeHref} data-dialog-close>
+      <span aria-hidden="true">&#x2715;</span>
+      <span class="visually-hidden">Close {room.code}, back to level {room.floor}</span>
+    </a>
+  </header>
+
+  {
+    features.length > 0 && (
+      <ul class="tags">
+        {features.map((feature) => (
+          <li class="pill">{feature}</li>
+        ))}
+      </ul>
+    )
+  }
+
+  {error && <p class="notice notice-error" role="alert">{error}</p>}
+  {
+    justBooked && (
+      <p class="notice notice-ok" role="status">
+        <span>
+          Booked — {room.code} is yours {dateLabel(date)},{" "}
+          {slotRangeLabel(justBooked.startSlot, justBooked.endSlot)}.{" "}
+          <a href="/bookings/">All your bookings</a>.
+        </span>
+      </p>
+    )
+  }
+
+  <section class="roomdialog-section" aria-labelledby="room-day">
+    <div class="section-head">
+      <h2 id="room-day">
+        {
+          pastBefore > 0
+            ? `${freeSlots} half hour${freeSlots === 1 ? "" : "s"} left free today`
+            : `${freeSlots} of ${SLOTS} half hours free`
+        }
+      </h2>
+      <DateStrip date={date} action={roomUrl(building.slug, room.code)} id="room-date" />
+    </div>
+    <RoomDay
+      buildingSlug={building.slug}
+      code={room.code}
+      date={date}
+      bookings={bookings}
+      pastBefore={pastBefore}
+      userId={user?.id}
+      picked={user ? [start, end] : undefined}
+    />
+    <ul class="legend">
+      <li><span class="swatch swatch-free"></span> Free</li>
+      <li><span class="swatch swatch-busy"></span> Taken</li>
+      <li><span class="swatch swatch-mine"></span> Yours</li>
+      {
+        pastBefore > 0 && (
+          <li>
+            <span class="swatch swatch-past" /> Already been
+          </li>
+        )
+      }
+    </ul>
+  </section>
+
+  <section class="roomdialog-section" id="book" aria-labelledby="room-book">
+    <h2 id="room-book">Book {room.code}</h2>
+    {
+      user ? (
+        <form method="post" action="/api/bookings" class="bookform" data-bookform>
+          <input type="hidden" name="roomId" value={room.id} />
+          <input type="hidden" name="date" value={date} />
+          <div class="field-row">
+            <div class="field">
+              <label for="startSlot">From</label>
+              <select id="startSlot" name="startSlot">
+                {startOptions.map((s) => (
+                  <option value={s} selected={s === start}>
+                    {slotTime(s)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div class="field">
+              <label for="endSlot">Until</label>
+              <select id="endSlot" name="endSlot">
+                {endOptions.map((e) => (
+                  <option value={e} selected={e === end}>
+                    {slotTime(e)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label for="purpose">What for</label>
+            <input
+              id="purpose"
+              name="purpose"
+              maxlength="120"
+              placeholder="Group project meeting"
+              required
+            />
+          </div>
+          <button class="btn btn-primary" type="submit">
+            Book it
+          </button>
+          <p class="muted bookform-note">
+            Up to {MAX_SLOTS_PER_BOOKING / 2} hours at a time. Tap a free half hour above to start
+            there. Everyone can see what a room is booked for.
+          </p>
+        </form>
+      ) : (
+        <div class="empty">
+          <p>Sign in to book this room. Any uni ID works.</p>
+          <a
+            class="btn btn-primary"
+            href={`/login/?next=${encodeURIComponent(roomUrl(building.slug, room.code, { date, start }))}`}
+          >
+            Sign in
+          </a>
+        </div>
+      )
+    }
+  </section>
+
+  <section class="roomdialog-section" aria-labelledby="room-who">
+    <h2 id="room-who">Who has it, {dateLabel(date)}</h2>
+    {
+      bookings.length === 0 ? (
+        <p class="muted">Nobody. The whole day is free.</p>
+      ) : (
+        <ul class="rows rows-tight">
+          {bookings.map((booking) => {
+            const mine = user !== undefined && booking.userId === user.id;
+            return (
+              <li class={`row${mine ? "" : " row-past"}`}>
+                <span class="when">{slotRangeLabel(booking.startSlot, booking.endSlot)}</span>
+                <span class="what">
+                  <b>{booking.purpose}</b>
+                  <span>
+                    {mine ? "You" : booking.bookedBy} ·{" "}
+                    <span class="code">{booking.bookedByUniId}</span>
+                  </span>
+                </span>
+                {mine && (
+                  <form method="post" action="/api/bookings/cancel">
+                    <input type="hidden" name="bookingId" value={booking.id} />
+                    <input type="hidden" name="next" value={here} />
+                    <button class="btn btn-quiet btn-danger btn-sm" type="submit">
+                      Cancel
+                      <span class="visually-hidden">
+                        {booking.purpose} at {slotRangeLabel(booking.startSlot, booking.endSlot)}
+                      </span>
+                    </button>
+                  </form>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )
+    }
+  </section>
+</dialog>
+
+<script>
+  import { navigate } from "astro:transitions/client";
+
+  const MAX = 6;
+  const SLOTS = 24;
+
+  function label(slot: number): string {
+    const minutes = 8 * 60 + slot * 30;
+    return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  }
+
+  function wire(): void {
+    const dialog = document.querySelector<HTMLDialogElement>("[data-room-dialog]");
+    if (!dialog) return;
+    const closeHref = dialog.dataset.close ?? "/";
+
+    // Land in the dialog, so a keyboard or screen reader is where the page is.
+    dialog.querySelector<HTMLElement>("#room-title")?.focus({ preventScroll: true });
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      void navigate(closeHref);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener(
+      "astro:before-swap",
+      () => document.removeEventListener("keydown", onKey),
+      { once: true },
+    );
+
+    const from = dialog.querySelector<HTMLSelectElement>("#startSlot");
+    const until = dialog.querySelector<HTMLSelectElement>("#endSlot");
+    const purpose = dialog.querySelector<HTMLInputElement>("#purpose");
+    const cells = [...dialog.querySelectorAll<HTMLElement>(".roomday .slot")];
+
+    // Keep "until" ahead of "from" as the start changes, rather than letting
+    // the server reject an impossible pair after a round trip.
+    function syncUntil(): void {
+      if (!from || !until) return;
+      const start = Number(from.value);
+      const previous = Number(until.value);
+      until.textContent = "";
+      for (let end = start + 1; end <= start + MAX && end <= SLOTS; end++) {
+        const option = document.createElement("option");
+        option.value = String(end);
+        option.textContent = label(end);
+        option.selected = end === previous || (previous <= start && end === start + 2);
+        until.append(option);
+      }
+      if (!until.value && until.options.length > 0) {
+        until.options[Math.min(1, until.options.length - 1)].selected = true;
+      }
+    }
+
+    // The run the form has chosen, drawn onto the day above it.
+    function showPicked(): void {
+      if (!from || !until) return;
+      const start = Number(from.value);
+      const end = Number(until.value);
+      for (const cell of cells) {
+        const slot = Number(cell.dataset.slot);
+        cell.toggleAttribute("data-picked", slot >= start && slot < end);
+      }
+    }
+
+    from?.addEventListener("change", () => {
+      syncUntil();
+      showPicked();
+    });
+    until?.addEventListener("change", showPicked);
+
+    // With a form to fill, tapping a free half hour fills it rather than
+    // reloading the dialog.
+    if (from && until) {
+      for (const cell of cells) {
+        if (cell.dataset.state !== "free") continue;
+        cell.addEventListener("click", (event) => {
+          const slot = cell.dataset.slot;
+          if (!slot || ![...from.options].some((option) => option.value === slot)) return;
+          event.preventDefault();
+          from.value = slot;
+          syncUntil();
+          showPicked();
+          purpose?.focus();
+        });
+      }
+    }
+  }
+
+  document.addEventListener("astro:page-load", wire);
+</script>

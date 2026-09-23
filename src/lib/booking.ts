@@ -181,7 +181,7 @@ export function bookingsForUser(userId: number): { upcoming: UserBooking[]; past
 }
 
 /** Slot-by-slot occupancy for one room on one date: the booking holding each
- *  slot, or undefined. This is what the day grid draws. */
+ *  slot, or undefined. */
 export function occupancy(roomId: number, date: string): Array<BookingRow | undefined> {
   const slots: Array<BookingRow | undefined> = new Array(SLOTS).fill(undefined);
   for (const booking of bookingsOn([roomId], date)) {
@@ -199,6 +199,29 @@ export function loadByRoom(roomIds: number[], date: string): Map<number, number>
     load.set(booking.roomId, (load.get(booking.roomId) ?? 0) + (booking.endSlot - booking.startSlot));
   }
   return load;
+}
+
+/** How free each level of a building is on a date: its rooms, and its free
+ *  half hours out of every half hour those rooms have. Feeds the building
+ *  stage of the map (the fanned storeys and the level list) and the level
+ *  switcher on the floor stage. */
+export function levelsOf(
+  building: Building,
+  date: string,
+): Array<{ level: number; rooms: number; free: number; capacity: number }> {
+  const all = roomsInBuilding(building.id);
+  const live = bookingsOn(
+    all.map((room) => room.id),
+    date,
+  );
+  return Array.from({ length: building.levels }, (_, level) => {
+    const ids = new Set(all.filter((room) => room.floor === level).map((room) => room.id));
+    const capacity = ids.size * SLOTS;
+    const used = live
+      .filter((booking) => ids.has(booking.roomId))
+      .reduce((total, booking) => total + (booking.endSlot - booking.startSlot), 0);
+    return { level, rooms: ids.size, free: capacity - used, capacity };
+  });
 }
 
 /** Everything the campus map needs for one date, in two queries: how many

@@ -12,6 +12,10 @@ import "../styles.css";
 // <ClientRouter /> is here for one reason: it lets the WebGL canvas survive
 // a page navigation (see CampusScene.astro), so clicking a building flies
 // the camera in rather than rebooting the whole scene.
+//
+// The map pages use the "map" layout: the map fills the window under the
+// masthead and nothing scrolls, so there's no page footer to scroll down to
+// — the attribution moves into the map's corner instead (MapFrame.astro).
 
 interface Props {
   title: string;
@@ -20,9 +24,27 @@ interface Props {
   user?: User;
   /** where to come back to after signing in */
   next?: string;
+  /** "map" fills the window with the map and drops the footer */
+  layout?: "page" | "map";
 }
 
-const { title, current, user, next = Astro.url.pathname } = Astro.props;
+const {
+  title,
+  current,
+  user,
+  next = Astro.url.pathname + Astro.url.search,
+  layout = "page",
+} = Astro.props;
+
+/** "Alex Nguyen" → "AN": who's signed in, in the width a phone has spare */
+const initials = user
+  ? nameOf(user)
+      .split(/\s+/)
+      .map((part) => part[0] ?? "")
+      .join("")
+      .slice(0, 2)
+      .toUpperCase()
+  : "";
 ---
 
 <!doctype html>
@@ -33,14 +55,26 @@ const { title, current, user, next = Astro.url.pathname } = Astro.props;
     <meta name="color-scheme" content="dark" />
     <meta
       name="description"
-      content="Find and book a room at ANU Acton — a live campus map, floor by floor."
+      content="ANU Room Booking — find and book a room at ANU Acton on a live campus map, floor by floor."
     />
     <title>{title}</title>
     <ClientRouter />
   </head>
-  <body>
+  <body class={layout === "map" ? "map-body" : undefined}>
     <header class="masthead">
-      <a class="brand" href="/">Book<span>ANU Acton</span></a>
+      <a class="brand" href="/">
+        {/* An original mark in ANU's black and gold — a shield with an open
+            book — not the University's crest: that's a trademark, and this
+            is a prototype that says it isn't an ANU service. */}
+        <svg class="brand-mark" viewBox="0 0 32 36" aria-hidden="true" focusable="false">
+          <path d="M16 1.5 29.5 5.5V17c0 8.6-5.6 14.6-13.5 17.5C8.1 31.6 2.5 25.6 2.5 17V5.5Z" />
+          <path
+            class="brand-book"
+            d="M7.5 12.8c3.2-1 6.1-.6 8.5 1.2v11.6c-2.4-1.6-5.3-2-8.5-1.1Zm17 0c-3.2-1-6.1-.6-8.5 1.2v11.6c2.4-1.6 5.3-2 8.5-1.1Z"
+          />
+        </svg>
+        <span class="brand-name"><b>ANU</b> Room Booking</span>
+      </a>
       <nav aria-label="Main">
         <a href="/" aria-current={current === "map" ? "page" : undefined}>Campus</a>
         <a href="/bookings/" aria-current={current === "bookings" ? "page" : undefined}>
@@ -53,8 +87,11 @@ const { title, current, user, next = Astro.url.pathname } = Astro.props;
         user ? (
           <form method="post" action="/api/session" class="whoami">
             <input type="hidden" name="action" value="sign-out" />
-            <span>
+            <span class="whoami-who">
               <b>{nameOf(user)}</b> <span class="uid">{user.uniId}</span>
+            </span>
+            <span class="whoami-initials" aria-hidden="true" title={nameOf(user)}>
+              {initials}
             </span>
             <button class="btn btn-quiet btn-sm" type="submit">Sign out</button>
           </form>
@@ -64,17 +101,23 @@ const { title, current, user, next = Astro.url.pathname } = Astro.props;
       }
     </header>
 
-    <main>
+    <main class={layout === "map" ? "map-main" : undefined}>
       <slot />
     </main>
 
-    <footer class="page-foot">
-      <p>
-        Building footprints {ATTRIBUTION}, licensed{" "}
-        <a href="https://www.openstreetmap.org/copyright" rel="license noreferrer">ODbL</a>. Floor
-        layouts, room numbers and every booking in here are invented — this is a COMP4020 prototype,
-        not an ANU service. <a href="/readme/">What this is</a>.
-      </p>
-    </footer>
+    {
+      layout === "page" && (
+        <footer class="page-foot">
+          <p>
+            Building footprints {ATTRIBUTION}, licensed{" "}
+            <a href="https://www.openstreetmap.org/copyright" rel="license noreferrer">
+              ODbL
+            </a>
+            . Floor layouts, room numbers and every booking in here are invented — this is a
+            COMP4020 prototype, not an ANU service. <a href="/readme/">What this is</a>.
+          </p>
+        </footer>
+      )
+    }
   </body>
 </html>

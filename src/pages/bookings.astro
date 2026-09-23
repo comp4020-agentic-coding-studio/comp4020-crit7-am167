@@ -2,7 +2,7 @@
 import Shell from "../components/Shell.astro";
 import { currentUser, nameOf } from "../lib/auth";
 import { bookingsForUser, errorMessage } from "../lib/booking";
-import { buildingUrl } from "../lib/links";
+import { roomUrl } from "../lib/links";
 import { swatchVars } from "../lib/palette";
 import { dateLabel, slotRangeLabel } from "../lib/slots";
 
@@ -15,7 +15,7 @@ const error =
     : undefined);
 ---
 
-<Shell title="My bookings · Book ANU Acton" current="bookings" user={user ?? undefined}>
+<Shell title="My bookings · ANU Room Booking" current="bookings" user={user ?? undefined}>
   <div class="page-head">
     <div>
       <h1>My bookings</h1>
@@ -67,8 +67,13 @@ const error =
                   <span class="what">
                     <b>{booking.purpose}</b>
                     <span>
-                      <a href={buildingUrl(booking.buildingSlug)}>{booking.buildingName}</a> ·{" "}
-                      <span class="code">{booking.roomCode}</span>
+                      {booking.buildingName} ·{" "}
+                      <a
+                        class="code"
+                        href={roomUrl(booking.buildingSlug, booking.roomCode, { date: booking.date })}
+                      >
+                        {booking.roomCode}
+                      </a>
                     </span>
                   </span>
                   <form method="post" action="/api/bookings/cancel">

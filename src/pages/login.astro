@@ -17,7 +17,7 @@ const ERRORS: Record<string, string> = {
 const error = ERRORS[Astro.url.searchParams.get("error") ?? ""];
 ---
 
-<Shell title="Sign in · Book ANU Acton" user={user ?? undefined} next={safeNext}>
+<Shell title="Sign in · ANU Room Booking" user={user ?? undefined} next={safeNext}>
   <div class="prose stack">
     <div>
       <h1>Sign in</h1>

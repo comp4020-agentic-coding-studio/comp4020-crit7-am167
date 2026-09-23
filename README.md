@@ -1,8 +1,9 @@
-# Book — ANU Acton room booking
+# ANU Room Booking
 
-Find and book a room at ANU, starting from a map of the actual campus. Pick a
-building out of a 3D Acton, drop into its floors, and take a half hour in a
-room that's free. Sign in with any ANU-style uni ID; your bookings survive a
+Find and book a room at ANU without leaving a map of the actual campus. Pick a
+building out of a 3D Acton, watch its storeys fan apart, drop onto one from
+overhead, and open a room's day in a dialog in front of the map to take a half
+hour that's free. Sign in with any ANU-style uni ID; your bookings survive a
 reload, a redeploy, and everyone else's.
 
 This is a COMP4020 prototype, not an ANU service. Nothing in it books a real
@@ -17,12 +18,28 @@ results table, which means you already have to know that Marie Reay has small
 rooms and Chifley doesn't, and you can't tell at a glance that the whole of
 Hancock is heaving this afternoon.
 
-So the map is the app. Every building carries its own colour — the same one on
-the map, on its card, down the side of its grid rows and across its floor
-plan — and how free it is on the date you're looking at shows as how saturated
-that colour is, plus a filled bar and a number. One glance tells you where to
-walk. Everything below the map is the same information as a list, because a map
-is a terrible way to read a timetable and a good way to choose a place.
+So the map is the app — literally the whole window. You never scroll past it to
+a second copy of the page; you drill down inside it:
+
+1. **Campus.** Every bookable building, tinted by how free it is.
+2. **A building.** Its storeys fan apart, each tagged with how free it is.
+3. **A level.** The camera swings overhead, the storeys above fade away, and the
+   rooms are tiles with their numbers painted on.
+4. **A room.** It lifts off the floor, the camera closes in, and its day opens
+   in a dialog in front of the map: when it's free, the form to take some of
+   it, and who has the rest. On a wide screen the map stays live behind the
+   dialog, so the next room along is one click away.
+
+Each step is a real URL, so the back button, a shared link and a reload all land
+where you were. A panel floats on the map — a sidebar on a desktop, a sheet
+along the bottom on a phone — carrying the same buildings, levels and rooms as
+lists, because a map is a terrible way to read a timetable and a good way to
+choose a place. Point at a row and the thing it names lights up on the map.
+
+Every building carries its own colour — the same one on the map, down the edge
+of its rows in the lists and across its floor plan — and how free it is on the
+date you're looking at shows as how saturated that colour is, plus a filled bar
+and a number. One glance tells you where to walk.
 
 Splitting it that way is deliberate: **hue means which building, fill means how
 free it is.** Nobody has to tell ten colours apart to answer "is there a room" —
@@ -76,18 +93,29 @@ Or type any uni ID you like and pick your own password.
 ## What good looks like here
 
 **The 3D is never the only way.** The canvas is enhancement, built by script or
-not at all. Every building and every room on it is also a real link in the
-server-rendered page, every form works with JavaScript off (POST, then a 303
-back), and the floor plan is an SVG with labelled links whether or not WebGL
-ever loads. Turn the canvas off — no WebGL, `prefers-reduced-motion`, a slow
-network — and you lose the spectacle, not the app.
+not at all. Every building, level and room on it is also a real link in the
+server-rendered panel, every form works with JavaScript off (POST, then a 303
+back), a room's dialog is a server-rendered `<dialog open>`, and each level has
+an SVG floor plan with labelled links for when there's no canvas to look down
+on. Turn the canvas off — no WebGL, `prefers-reduced-motion`, a slow network —
+and the same page lays itself out as ordinary lists you scroll: you lose the
+spectacle, not the app.
+
+**The map frames around what covers it.** The panel and the dialog float on the
+canvas, so fitting the campus to the whole canvas would hide half of it behind
+them. The scene measures whatever is covering it and shifts the camera's
+projection so the subject is centred in what's left — the campus beside the
+sidebar on a desktop, above the sheet on a phone, and the open room beside its
+dialog.
 
 **It has to work on a phone.** 390×844 is a full marking viewport for this
-course, not a fallback. The camera framing is *solved* against the campus
-geometry and the current aspect ratio rather than hand-tuned, so every bookable
-building lands inside the frame on a wide desktop canvas and on a narrow phone
-one. Labels are drawn in screen space so a building code is as legible at either
-size.
+course, not a fallback. The panel becomes a sheet folded to its essentials, the
+dialog a taller sheet over it, and one finger orbits while two pinch. The camera
+framing is *solved* against the geometry and the space left for the map rather
+than hand-tuned, so every bookable building lands inside the frame on a wide
+desktop and on a narrow phone, and a floor seen from overhead turns to run up a
+tall screen with its room numbers turned back to read left to right. Building
+codes are drawn in screen space so they're as legible at either size.
 
 **Colour never carries meaning alone.** Taken slots are hatched as well as
 filled, a slot you hold is inked rather than tinted, and every cell says what
@@ -125,7 +153,13 @@ template: a nav landmark, one `<h1>`, a language, a title, a mobile viewport,
 alt text, an axe-core accessibility floor on every route in `spec/routes.ts`,
 and this file being served whole at `/readme/`.
 
-Mine are `spec/campus.test.ts` and `spec/booking.test.ts`. The campus one holds
+Mine are `spec/campus.test.ts`, `spec/booking.test.ts` and `spec/map.test.ts`.
+The map one holds the drill-down to its contract over HTTP: the campus offers
+every building, a building offers every level, a level offers exactly its own
+rooms and the way back up, a level that doesn't exist falls back to the building
+rather than guessing, and a room opens as a dialog in front of the map — not
+instead of it — carrying the page's heading, a sign-in or a booking form, and a
+close link back to its level on the same date. The campus one holds
 the floor-plan generator to its contract — every room inside its building's real
 footprint, no two rooms overlapping, deterministic, room numbers that read like
 room numbers. The booking one drives the running app over HTTP and asserts the
@@ -136,7 +170,8 @@ client reaches another over the event stream. They pick a room and a free slot
 by asking the app, so seeded traffic can't make them flaky.
 
 What no test here can tell me: whether the map is actually easier than a
-dropdown. That's the crit's call.
+dropdown, or whether a camera flight reads as "one step further in" rather than
+as motion for its own sake. That's the crit's call.
 
 ## Running it
 

@@ -11,9 +11,12 @@ interface Props {
   action: string;
   /** query values to carry across a date change */
   keep?: Record<string, string | number>;
+  /** the select's id — two strips on one page (the map's and a room
+   *  dialog's) need two ids */
+  id?: string;
 }
 
-const { date, action, keep = {} } = Astro.props;
+const { date, action, keep = {}, id = "date" } = Astro.props;
 const dates = bookableDates();
 const previous = addDays(date, -1);
 const next = addDays(date, 1);
@@ -37,8 +40,8 @@ const now = today();
   </a>
 
   <div class="datestrip-field">
-    <label class="visually-hidden" for="date">Date</label>
-    <select id="date" name="date">
+    <label class="visually-hidden" for={id}>Date</label>
+    <select id={id} name="date">
       {
         dates.map((d) => (
           <option value={d} selected={d === date}>
@@ -64,8 +67,11 @@ const now = today();
 </form>
 
 <script>
-  // With JavaScript on, changing the date just goes — no second click.
-  for (const form of document.querySelectorAll<HTMLFormElement>("form.datestrip")) {
-    form.querySelector("select")?.addEventListener("change", () => form.requestSubmit());
-  }
+  // With JavaScript on, changing the date just goes — no second click. Wired
+  // on every page load, because the router swaps the strip out under us.
+  document.addEventListener("astro:page-load", () => {
+    for (const form of document.querySelectorAll<HTMLFormElement>("form.datestrip")) {
+      form.querySelector("select")?.addEventListener("change", () => form.requestSubmit());
+    }
+  });
 </script>

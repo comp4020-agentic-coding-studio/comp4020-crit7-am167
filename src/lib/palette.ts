@@ -3,9 +3,9 @@ import { BUILDINGS } from "../data/campus";
 // One colour per building, and one place that decides it.
 //
 // The map is colourful because the CAMPUS is: hue means "which building",
-// not "how busy". Marie Reay is red everywhere — on the map, on its card, down
-// the side of its grid rows, on its floor plan — so you learn the campus by
-// colour and can find it again without reading a label.
+// not "how busy". Marie Reay is red everywhere — on the map, down the edge of
+// its rows in the lists, across its floor plan and its room dialog — so you
+// learn the campus by colour and can find it again without reading a label.
 //
 // Availability is carried by FILL instead: how much of a bar is painted, how
 // vivid the building is against the paper. That split is what lets the page be
