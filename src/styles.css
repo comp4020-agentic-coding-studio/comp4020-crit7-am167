@@ -1042,6 +1042,17 @@ select {
   transition: fill-opacity 130ms ease;
 }
 
+.fp-room[data-kind="desk"] rect {
+  stroke-width: 0.1;
+}
+
+/* stairs, lifts and toilets: part of the building, not something to book */
+.fp-core {
+  fill: var(--taken);
+  stroke: var(--line-2);
+  stroke-width: 0.3;
+}
+
 .fp-room[data-state="full"] rect {
   fill: var(--taken);
   fill-opacity: 1;
@@ -1410,6 +1421,130 @@ select {
 .roomrow .daybar {
   grid-column: 1 / -1;
   margin-top: 0.35rem;
+}
+
+/* the study areas on a level: one folded line each, opening to its desks */
+.deskareas {
+  display: grid;
+  gap: 0.45rem;
+  margin-bottom: 0.9rem;
+}
+
+.deskarea {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+}
+
+.deskarea summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.2rem 0.6rem;
+  padding: 0.6rem 0.75rem;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.deskarea summary:hover {
+  background: var(--hue-wash);
+}
+
+.deskarea[open] summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.deskarea-name {
+  font-weight: 600;
+}
+
+.deskarea-name .pill {
+  margin-left: 0.35rem;
+  font-size: 0.7rem;
+}
+
+.deskarea-stat {
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--ink-2);
+}
+
+.desks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(2.6rem, 1fr));
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0.6rem;
+  list-style: none;
+}
+
+/* one desk: its number, and under it a bar of how much of the day it has
+   left. The text stays ink on card whatever the bar says, so it reads. */
+.desk {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 2.4rem;
+  padding-bottom: 0.3rem;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 650;
+  text-decoration: none;
+  overflow: hidden;
+}
+
+.desk::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 0.25rem;
+  width: calc(var(--share, 0) * 100%);
+  background: var(--hue);
+}
+
+.desk:hover {
+  border-color: var(--hue);
+  background: var(--hue-wash);
+  color: var(--ink);
+}
+
+.desk[data-state="full"] {
+  background: var(--gone);
+  color: var(--ink-2);
+}
+
+.desk[data-state="mine"] {
+  background: var(--ink);
+  border-color: transparent;
+  color: var(--on-ink);
+}
+
+.desk[data-state="mine"]::after {
+  background: var(--gold);
+}
+
+.desk[aria-current="true"] {
+  border-color: var(--hue);
+  box-shadow: inset 0 0 0 2px var(--hue);
+}
+
+.deskkey {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.76rem;
+}
+
+.deskkey-bar {
+  width: 1.4rem;
+  height: 0.25rem;
+  background: linear-gradient(to right, var(--hue) 60%, var(--line-2) 60%);
 }
 
 /* --- a room's dialog ----------------------------------------------------- */

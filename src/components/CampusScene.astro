@@ -26,7 +26,7 @@ interface Props {
   /** building and floor stages: the building to fly into */
   focus?: string;
   /** building stage: how free each level is, 0–1 */
-  levels?: Array<{ level: number; rooms: number; free: number }>;
+  levels?: Array<{ level: number; rooms: number; desks: number; free: number }>;
   /** floor stage: the level to look down on (absent = the building stage) */
   floor?: number;
   /** room stage: the room whose dialog is open */
@@ -51,13 +51,16 @@ if (focus && floor !== undefined) {
       return {
         code: room.code,
         slug: roomSlug(room.code),
+        kind: room.kind,
         cx: room.cx,
         cz: room.cz,
         w: room.w,
         d: room.d,
         angle: room.angle,
         capacity: room.capacity,
-        free: (SLOTS - used) / SLOTS,
+        // to the half hour is all a tint can show; more digits are just
+        // bytes, and a big floor has hundreds of these
+        free: Math.round(((SLOTS - used) / SLOTS) * 1000) / 1000,
         yours: user ? held.some((booking) => booking.userId === user.id) : false,
       };
     });

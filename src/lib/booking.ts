@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db, sqlite } from "./db";
+import { isDesk } from "./floorplan";
 import { publish } from "./events";
 import { roomSlug } from "./links";
 import { type Booking, type Building, type Room, bookings, buildings, rooms, users } from "./schema";
@@ -57,11 +58,13 @@ export function buildingBySlug(slug: string): Building | undefined {
   return db.select().from(buildings).where(eq(buildings.slug, slug)).get();
 }
 
+/** The places a building offers right now: rooms first, then desks, floor
+ *  by floor. A place that isn't listed (see the schema) is left out. */
 export function roomsInBuilding(buildingId: number): Room[] {
   return db
     .select()
     .from(rooms)
-    .where(eq(rooms.buildingId, buildingId))
+    .where(and(eq(rooms.buildingId, buildingId), eq(rooms.listed, true)))
     .orderBy(asc(rooms.floor), asc(rooms.code))
     .all();
 }
@@ -107,6 +110,7 @@ const roomColumns = {
   w: rooms.w,
   d: rooms.d,
   angle: rooms.angle,
+  listed: rooms.listed,
 };
 
 export type BookingRow = Booking & { bookedBy: string; bookedByUniId: string };
@@ -213,19 +217,21 @@ export function loadByRoom(roomIds: number[], date: string): Map<number, number>
 export function levelsOf(
   building: Building,
   date: string,
-): Array<{ level: number; rooms: number; free: number; capacity: number }> {
+): Array<{ level: number; rooms: number; desks: number; free: number; capacity: number }> {
   const all = roomsInBuilding(building.id);
   const live = bookingsOn(
     all.map((room) => room.id),
     date,
   );
   return Array.from({ length: building.levels }, (_, level) => {
-    const ids = new Set(all.filter((room) => room.floor === level).map((room) => room.id));
+    const here = all.filter((room) => room.floor === level);
+    const ids = new Set(here.map((room) => room.id));
+    const desks = here.filter((room) => isDesk(room.kind)).length;
     const capacity = ids.size * SLOTS;
     const used = live
       .filter((booking) => ids.has(booking.roomId))
       .reduce((total, booking) => total + (booking.endSlot - booking.startSlot), 0);
-    return { level, rooms: ids.size, free: capacity - used, capacity };
+    return { level, rooms: ids.size - desks, desks, free: capacity - used, capacity };
   });
 }
 
@@ -237,7 +243,9 @@ export function levelsOf(
  *  and the 3D scene showing the same campus. */
 export type BuildingOverview = {
   building: Building;
+  /** places matching the filter, and how many of those are desks */
   matching: number;
+  desks: number;
   free: number;
   total: number;
   /** first slot with a matching room free, or undefined if there's none left */
@@ -250,7 +258,7 @@ export function campusOverview(
   filter: { minCapacity?: number; feature?: string } = {},
   userId?: number,
 ): BuildingOverview[] {
-  const all = db.select().from(rooms).all();
+  const all = db.select().from(rooms).where(eq(rooms.listed, true)).all();
   const matches = all.filter(
     (room) =>
       (!filter.minCapacity || room.capacity >= filter.minCapacity) &&
@@ -297,6 +305,7 @@ export function campusOverview(
     return {
       building,
       matching: mine.length,
+      desks: mine.filter((room) => isDesk(room.kind)).length,
       free: total - used,
       total,
       nextFree: nextFree === -1 ? undefined : nextFree,
@@ -320,8 +329,9 @@ export function createBooking(input: {
   const { userId, roomId, date, startSlot, endSlot } = input;
   if (!userId) return { ok: false, error: "signed-out" };
 
+  // an unlisted place is off the map, so it can't be booked either
   const room = roomById(roomId);
-  if (!room) return { ok: false, error: "no-room" };
+  if (!room?.listed) return { ok: false, error: "no-room" };
   if (!isBookableDate(date)) return { ok: false, error: "bad-date" };
 
   if (

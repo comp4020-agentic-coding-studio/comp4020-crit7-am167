@@ -1,6 +1,6 @@
 ---
 import type { BookingRow, RoomRow } from "../lib/booking";
-import { labelFor, type RoomKind } from "../lib/floorplan";
+import { deskArea, isDesk, labelFor, type RoomKind } from "../lib/floorplan";
 import { levelName } from "../lib/levels";
 import { roomUrl } from "../lib/links";
 import type { Building, Room, User } from "../lib/schema";
@@ -42,6 +42,7 @@ const { building, room, date, user, bookings, pastBefore, start, error, justBook
   Astro.props;
 
 const features = JSON.parse(room.features) as string[];
+const noun = isDesk(room.kind) ? "desk" : "room";
 const end = Math.min(start + 2, SLOTS);
 const startOptions = Array.from({ length: SLOTS }, (_, i) => i).filter((s) => s >= pastBefore);
 const endOptions = Array.from({ length: SLOTS }, (_, i) => i + 1).filter(
@@ -67,7 +68,11 @@ const here = roomUrl(building.slug, room.code, { date });
       <p class="roomdialog-where">{building.name} · {levelName(room.floor)}</p>
       <h1 id="room-title" class="code" tabindex="-1">{room.code}</h1>
       <p class="roomdialog-what">
-        {labelFor(room.kind as RoomKind)} · seats {room.capacity}
+        {
+          isDesk(room.kind)
+            ? `${labelFor("desk")} in study area ${deskArea(room.code) ?? ""} · one person`
+            : `${labelFor(room.kind as RoomKind)} · seats ${room.capacity}`
+        }
       </p>
     </div>
     <a class="btn btn-quiet btn-sm roomdialog-close" href={closeHref} data-dialog-close>
@@ -177,12 +182,12 @@ const here = roomUrl(building.slug, room.code, { date });
           </button>
           <p class="muted bookform-note">
             Up to {MAX_SLOTS_PER_BOOKING / 2} hours at a time. Tap a free half hour above to start
-            there. Everyone can see what a room is booked for.
+            there. Everyone can see what a {noun} is booked for.
           </p>
         </form>
       ) : (
         <div class="empty">
-          <p>Sign in to book this room. Any uni ID works.</p>
+          <p>Sign in to book this {noun}. Any uni ID works.</p>
           <a
             class="btn btn-primary"
             href={`/login/?next=${encodeURIComponent(roomUrl(building.slug, room.code, { date, start }))}`}

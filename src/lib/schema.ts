@@ -30,9 +30,10 @@ export const buildings = sqliteTable(
   (t) => [uniqueIndex("buildings_code").on(t.code), uniqueIndex("buildings_slug").on(t.slug)],
 );
 
-/** A bookable room. Its rectangle is in the same metre grid as the building,
- *  rotated to the building's long axis — the 3D scene and the flat SVG
- *  floorplan both draw from these numbers. */
+/** A bookable place: a room, or one desk in an open study area. Its
+ *  rectangle is in the same metre grid as the building, rotated to the
+ *  building's long axis — the 3D scene and the flat SVG floorplan both draw
+ *  from these numbers. */
 export const rooms = sqliteTable(
   "rooms",
   {
@@ -51,6 +52,11 @@ export const rooms = sqliteTable(
     w: real().notNull(),
     d: real().notNull(),
     angle: real().notNull(),
+    /** Offered on the map and bookable. False for a room an older layout
+     *  planned, kept only because bookings point at it, and for a new place
+     *  still waiting for an old room with bookings to come to clear out of
+     *  its way. See reconcileRooms in src/lib/seed.ts. */
+    listed: int({ mode: "boolean" }).notNull().default(true),
   },
   (t) => [uniqueIndex("rooms_code").on(t.code), index("rooms_building_floor").on(t.buildingId, t.floor)],
 );

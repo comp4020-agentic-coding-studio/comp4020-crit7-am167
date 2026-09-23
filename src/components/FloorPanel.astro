@@ -1,6 +1,6 @@
 ---
 import { bookingsOn, levelsOf, roomsInBuilding } from "../lib/booking";
-import { labelFor, type RoomKind } from "../lib/floorplan";
+import { deskArea, isDesk, labelFor, shortCode, type RoomKind } from "../lib/floorplan";
 import { levelName, levelTag, levelTitle } from "../lib/levels";
 import { buildingUrl, roomSlug, roomUrl } from "../lib/links";
 import type { Building, User } from "../lib/schema";
@@ -10,8 +10,14 @@ import FloorPlan from "./FloorPlan.astro";
 import MapPanel from "./MapPanel.astro";
 
 // The floor stage's panel: which level you're on, the other levels one tap
-// away, and every room on this one with its day drawn as a strip — so you
-// can scan the floor for a free afternoon without opening each room.
+// away, and everything bookable on this one.
+//
+// A floor is a few rooms and a lot of desks, and the two want different
+// lists. Each room gets a row with its day drawn as a strip, so you can scan
+// for a free afternoon without opening each one. Desks come in study areas
+// of up to fifty: each area folds up to one line saying how many are free,
+// and opens to a grid of desk numbers shaded by how much of the day each has
+// left. A strip per desk would be a list hundreds of rows long.
 //
 // The same panel sits behind a room's dialog, where the dialog carries the
 // page's heading and date, so both are switchable here.
@@ -31,15 +37,16 @@ const { building, floor, date, user, selected, primary = true } = Astro.props;
 
 const levels = levelsOf(building, date);
 const here = levels[floor];
-const rooms = roomsInBuilding(building.id).filter((room) => room.floor === floor);
+const places = roomsInBuilding(building.id).filter((room) => room.floor === floor);
 const bookings = bookingsOn(
-  rooms.map((room) => room.id),
+  places.map((room) => room.id),
   date,
 );
-const pastBefore = date === today() ? currentSlot() : -1;
+const isToday = date === today();
+const pastBefore = isToday ? currentSlot() : -1;
 
 type SlotState = "free" | "busy" | "mine" | "past";
-const rows = rooms.map((room) => {
+const rows = places.map((room) => {
   const slots: SlotState[] = new Array(SLOTS).fill("free");
   for (let s = 0; s < Math.min(pastBefore, SLOTS); s++) slots[s] = "past";
   for (const booking of bookings.filter((b) => b.roomId === room.id)) {
@@ -48,20 +55,43 @@ const rows = rooms.map((room) => {
       slots[s] = mine ? "mine" : "busy";
     }
   }
+  const free = slots.filter((state) => state === "free").length;
   return {
     room,
     slug: roomSlug(room.code),
     slots,
-    free: slots.filter((state) => state === "free").length,
+    free,
     yours: slots.includes("mine"),
+    freeNow: isToday && pastBefore >= 0 && pastBefore < SLOTS && slots[pastBefore] === "free",
+    // how much of what's left of the day is still free, for a desk's shade
+    share: free / Math.max(1, SLOTS - Math.max(0, pastBefore)),
+  };
+});
+
+const roomRows = rows.filter((row) => !isDesk(row.room.kind));
+const deskRows = rows.filter((row) => isDesk(row.room.kind));
+
+/** study areas, in the order they run along the corridor */
+const areas = [...new Set(deskRows.map((row) => deskArea(row.room.code) ?? "?"))].map((area) => {
+  const desks = deskRows.filter((row) => (deskArea(row.room.code) ?? "?") === area);
+  return {
+    area,
+    desks,
+    withTime: desks.filter((row) => row.free > 0).length,
+    freeNow: desks.filter((row) => row.freeNow).length,
+    quiet: desks.every((row) => (JSON.parse(row.room.features) as string[]).includes("quiet")),
+    open: desks.some((row) => row.slug === selected || row.yours),
   };
 });
 
 const pct = (free: number, capacity: number) => Math.round((free / Math.max(1, capacity)) * 100);
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const Heading = primary ? "h1" : "h2";
+const deskTitle = (row: (typeof rows)[number]) =>
+  `${row.room.code}, ${row.yours ? "yours, " : ""}${row.free === 0 ? "full" : `${row.free / 2} h free`}`;
 ---
 
-<MapPanel label={`${building.name}, ${levelName(floor)}`} noun="rooms" folded={!primary}>
+<MapPanel label={`${building.name}, ${levelName(floor)}`} noun="places" folded={!primary}>
   <Fragment slot="head">
     <ol class="crumbs">
       <li><a href={`/?date=${date}`}>Campus</a></li>
@@ -72,7 +102,7 @@ const Heading = primary ? "h1" : "h2";
       {building.name}, {levelName(floor)}
     </Heading>
     <p class="mappanel-sub">
-      {rooms.length} room{rooms.length === 1 ? "" : "s"}
+      {plural(roomRows.length, "room")} · {plural(deskRows.length, "desk")}
       {here && ` · ${pct(here.free, here.capacity)}% free ${dateLabel(date)}`}
       <span class="live-only"> · pick one on the map</span>
     </p>
@@ -85,7 +115,7 @@ const Heading = primary ? "h1" : "h2";
           >
             {levelTag(entry.level)}
             <span class="visually-hidden">
-              , {entry.rooms} rooms, {pct(entry.free, entry.capacity)}% free
+              , {entry.rooms} rooms and {entry.desks} desks, {pct(entry.free, entry.capacity)}% free
             </span>
           </a>
         ))
@@ -97,7 +127,7 @@ const Heading = primary ? "h1" : "h2";
   {
     rows.length === 0 ? (
       <div class="empty">
-        <p>No bookable rooms on this level.</p>
+        <p>Nothing bookable on this level.</p>
       </div>
     ) : (
       <>
@@ -121,7 +151,7 @@ const Heading = primary ? "h1" : "h2";
           </ul>
         </div>
         <ul class="roomlist">
-          {rows.map(({ room, slug, slots, free, yours }) => (
+          {roomRows.map(({ room, slug, slots, free, yours }) => (
             <li>
               <a
                 class="roomrow"
@@ -148,6 +178,51 @@ const Heading = primary ? "h1" : "h2";
             </li>
           ))}
         </ul>
+
+        {areas.length > 0 && (
+          <>
+            <div class="section-head">
+              <h2 class="mappanel-section">Study desks · {dateLabel(date)}</h2>
+              <p class="deskkey muted">
+                <span class="deskkey-bar" aria-hidden="true" /> how much of the day is free
+              </p>
+            </div>
+            <div class="deskareas">
+              {areas.map(({ area, desks, withTime, freeNow, quiet, open }) => (
+                <details class="deskarea" open={open}>
+                  <summary>
+                    <span class="deskarea-name">
+                      Study area <span class="code">{area}</span>
+                      {quiet && <span class="pill">quiet</span>}
+                    </span>
+                    <span class="deskarea-stat">
+                      {isToday && pastBefore >= 0 && pastBefore < SLOTS
+                        ? `${freeNow} of ${desks.length} free now`
+                        : `${withTime} of ${desks.length} with time free`}
+                    </span>
+                  </summary>
+                  <ul class="desks">
+                    {desks.map((row) => (
+                      <li>
+                        <a
+                          class="desk"
+                          href={roomUrl(building.slug, row.room.code, { date })}
+                          aria-current={row.slug === selected ? "true" : undefined}
+                          aria-label={deskTitle(row)}
+                          data-map-hover={`room:${row.slug}`}
+                          data-state={row.yours ? "mine" : row.free === 0 ? "full" : "free"}
+                          style={`--share:${row.share.toFixed(3)}`}
+                        >
+                          <span class="code">{shortCode(row.room.code)}</span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ))}
+            </div>
+          </>
+        )}
       </>
     )
   }
@@ -156,7 +231,7 @@ const Heading = primary ? "h1" : "h2";
   <div class="fallback-only">
     <FloorPlan
       building={building}
-      rooms={rooms}
+      rooms={places}
       bookings={bookings}
       date={date}
       userId={user?.id}

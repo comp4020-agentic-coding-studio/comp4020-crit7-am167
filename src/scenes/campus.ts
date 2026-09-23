@@ -31,6 +31,7 @@ import {
 } from "three";
 import type { Material, Object3D } from "three";
 import { BUILDINGS, LANES, PATHS, ROADS, SCENERY, WATER, type Ring } from "../data/campus";
+import { isDesk, planCores, shortCode } from "../lib/floorplan";
 import { levelTag, levelTitle } from "../lib/levels";
 import { swatchFor } from "../lib/palette";
 import type { Theme } from "../lib/theme";
@@ -78,10 +79,12 @@ export type SceneState = {
   /** the room whose dialog is open, if any */
   selected: string | null;
   buildings: Array<{ slug: string; free: number; matching: number; yours: number }>;
-  levels: Array<{ level: number; rooms: number; free: number }>;
+  levels: Array<{ level: number; rooms: number; desks: number; free: number }>;
+  /** everything bookable on the floor: rooms and desks */
   rooms: Array<{
     code: string;
     slug: string;
+    kind: string;
     cx: number;
     cz: number;
     w: number;
@@ -161,6 +164,8 @@ const STOREY = 8;
 const UP = /* @__PURE__ */ (() => new Vector3(0, 1, 0))();
 /** Room tiles are seen from above, so they're low: a plan, not a model. */
 const ROOM_HEIGHT = 2.4;
+/** A desk is furniture, not a room: it sits well under the walls. */
+const DESK_HEIGHT = 0.9;
 /** how far the open room rises off the floor */
 const ROOM_LIFT = 1.6;
 /** hover lifts a surface towards this rather than making it glow */
@@ -805,7 +810,8 @@ export function createScene(
     if (current?.mode === "building" && data.slug === current.focus) {
       const level = current.levels.find((entry) => entry.level === data.level);
       if (!level) return levelTitle(data.level ?? 0);
-      return `${levelTitle(level.level)} · ${level.rooms} room${level.rooms === 1 ? "" : "s"} · ${Math.round(level.free * 100)}% free`;
+      const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+      return `${levelTitle(level.level)} · ${count(level.rooms, "room")}, ${count(level.desks, "desk")} · ${Math.round(level.free * 100)}% free`;
     }
     const info = current?.buildings.find((entry) => entry.slug === building.slug);
     return info && current?.mode === "campus"
@@ -1015,7 +1021,8 @@ export function createScene(
           // each storey tinted by how free ITS rooms are, fanned apart so
           // you can see which one you want
           const entry = levels.get(level);
-          colour = entry && entry.rooms > 0 ? tinted(entry.free) : new Color(COLOUR.spent);
+          colour =
+            entry && entry.rooms + entry.desks > 0 ? tinted(entry.free) : new Color(COLOUR.spent);
           y = level * (STOREY + FAN);
           edge = 0.4;
         } else if (state.mode === "floor") {
@@ -1082,7 +1089,7 @@ export function createScene(
     if (!building) return;
     for (const entry of state.levels) {
       const text =
-        entry.rooms === 0
+        entry.rooms + entry.desks === 0
           ? levelTag(entry.level)
           : `${levelTag(entry.level)} · ${Math.round(entry.free * 100)}%`;
       const tag = makeLabel(text, COLOUR.label, 0.03);
@@ -1179,7 +1186,45 @@ export function createScene(
       const identity = identityOf(parent.code);
       const y = plateTop(state.floor);
 
+      // The stair, lift and toilet cores: the same shaft on every storey,
+      // walled and full height but in the floor's own stone, so they read
+      // as building rather than as something you can book.
+      const source = BUILDINGS.find((b) => b.code === parent.code);
+      const cores: Mesh[] = [];
+      for (const core of source ? planCores(source) : []) {
+        const material = new MeshStandardMaterial({
+          color: new Color(COLOUR.spent),
+          roughness: 0.8,
+          metalness: 0,
+          transparent: true,
+          opacity: animate ? 0 : 1,
+        });
+        const mesh = new Mesh(new BoxGeometry(core.w, ROOM_HEIGHT, core.d), material);
+        mesh.position.set(core.cx, y + ROOM_HEIGHT / 2, core.cz);
+        mesh.rotation.y = -core.angle;
+        const tag = roomTag("Lifts", "stairs · toilets", core.w, core.d, turn, true);
+        tag.position.y = ROOM_HEIGHT / 2 + 0.05;
+        mesh.add(tag);
+        roomGroup.add(mesh);
+        cores.push(mesh);
+      }
+
+      // every desk is the same size, so they share one box and one outline
+      const deskGeometry = new Map<string, { box: BoxGeometry; edges: EdgesGeometry }>();
+      const shapeFor = (w: number, d: number, height: number) => {
+        const key = `${w}:${d}:${height}`;
+        let shape = deskGeometry.get(key);
+        if (!shape) {
+          const box = new BoxGeometry(w, height, d);
+          shape = { box, edges: new EdgesGeometry(box) };
+          deskGeometry.set(key, shape);
+        }
+        return shape;
+      };
+
       for (const room of state.rooms) {
+        const desk = isDesk(room.kind);
+        const height = desk ? DESK_HEIGHT : ROOM_HEIGHT;
         // A room keeps its building's colour and loses saturation as it
         // fills up; a room you hold is inked, which no hue in the palette is.
         const tint = room.yours
@@ -1194,24 +1239,41 @@ export function createScene(
         });
         material.userData.base = tint.clone();
 
-        const mesh = new Mesh(new BoxGeometry(room.w, ROOM_HEIGHT, room.d), material);
-        mesh.position.set(room.cx, y + ROOM_HEIGHT / 2, room.cz);
+        const shape = desk
+          ? shapeFor(room.w, room.d, height)
+          : { box: new BoxGeometry(room.w, height, room.d), edges: undefined };
+        const mesh = new Mesh(shape.box, material);
+        mesh.position.set(room.cx, y + height / 2, room.cz);
         mesh.rotation.y = -room.angle;
+        const free = `${Math.round(room.free * 24) / 2} h free`;
         mesh.userData = {
           kind: "room",
           slug: room.slug,
+          height,
           href: `/b/${state.focus}/${room.slug}/?date=${state.date}`,
-          label: `${room.code} — ${room.capacity} seats — ${Math.round(room.free * 24) / 2} h free`,
+          label: desk
+            ? `${room.code} — desk — ${free}`
+            : `${room.code} — ${room.capacity} seats — ${free}`,
         };
 
-        const number = room.code.split(" ").pop() ?? room.code;
-        const tag = roomTag(number, `${room.capacity} seats`, room.w, room.d, turn, luminance(tint) > 0.2);
-        tag.position.y = ROOM_HEIGHT / 2 + 0.05;
-        mesh.add(tag);
+        // a room's number is painted on it; a desk is too small to carry one
+        // legibly at this distance, and its study area's list names it
+        if (!desk) {
+          const tag = roomTag(
+            shortCode(room.code),
+            `${room.capacity} seats`,
+            room.w,
+            room.d,
+            turn,
+            luminance(tint) > 0.2,
+          );
+          tag.position.y = height / 2 + 0.05;
+          mesh.add(tag);
+        }
 
-        // drawn only on the room whose dialog is open
+        // drawn only on the place whose dialog is open
         const ring = new LineSegments(
-          new EdgesGeometry(mesh.geometry),
+          shape.edges ?? new EdgesGeometry(mesh.geometry),
           new LineBasicMaterial({ color: COLOUR.mine, transparent: true, opacity: 0.9 }),
         );
         ring.visible = false;
@@ -1224,6 +1286,12 @@ export function createScene(
 
       if (animate) {
         tweens.push((t) => {
+          for (const mesh of cores) {
+            mesh.traverse((child) => {
+              const m = (child as Mesh).material as MeshBasicMaterial | undefined;
+              if (m) m.opacity = t;
+            });
+          }
           for (const mesh of roomMeshes) {
             (mesh.material as MeshStandardMaterial).opacity = t;
             mesh.traverse((child) => {
@@ -1236,9 +1304,10 @@ export function createScene(
     }
 
     // the open room stands up off the floor and gets an inked edge
-    const y = plateTop(state.floor) + ROOM_HEIGHT / 2;
+    const floorTop = plateTop(state.floor);
     for (const mesh of roomMeshes) {
       const chosen = mesh.userData.slug === state.selected;
+      const y = floorTop + (mesh.userData.height as number) / 2;
       for (const child of mesh.children) if (child.userData.ring) child.visible = chosen;
       tweenNumber(mesh.position.y, y + (chosen ? ROOM_LIFT : 0), (v) => (mesh.position.y = v), animate);
     }
