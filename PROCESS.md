@@ -1,54 +1,29 @@
 # Process overview
 
-<!-- TEMPLATE: this file is a shape to fill in, not a form. Replace everything
-     in it with your own overview, and delete this comment — `pnpm
-     check:evidence` will remind you if it's still here. -->
-
-Written by you, for a reader: how you got from the brief to the harness and
-agentic workflow behind this submission. Markers read this file and follow its
-citations; they don't trawl the repo for evidence you didn't point at.
-
-This file is the shape; the course site's
-[assessment page](https://comp.anu.edu.au/courses/comp4020-agentic-coding-studio/topics/assessment/#what-you-submit)
-is the requirement, and its
-[word counts](https://comp.anu.edu.au/courses/comp4020-agentic-coding-studio/topics/assessment/#word-counts)
-cover every deliverable.
-
 ## What I built
 
-A sentence or two. `README.md` is where the account of what the app is and what
-good means here lives; this file is how you got there.
+A room booking system for the ANU. You sign in your uni ID, find a free room, lab or study desk, and book a time slot. The
+booking is stored in the database, so it's persists after a reload, a redeploy,
+and everyone else's bookings. You find free spaces on a 3D map of the real campus and drill down inside it: campus,
+building, level, then the room's booking dialog.
 
 ## How I got here
 
-The account of the process: how the work actually went, and how you knew the
-result was right. Tell it in whatever order makes it clear. A weekly prototype
-needs a paragraph or two; an assignment needs more.
+**Keeping everything in the map.** 
+I'd asked for the app to be built around a 3D map of ANU ([`1e47035`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit7-am167/commit/1e47035)), but in its first pass the agent made its own assumption about how booking should work. It put a list below the campus map, and placed the floor plan and booking form underneath the canvas on every building and room page. I wanted the whole flow to stay inside the map, so I asked it to rework that first version:
 
-Cite the record as you go, as links whose text is the commit hash or range and
-whose target is this repo's commit or compare URL, so a reader clicks straight
-to the evidence:
+> I dont like having to scroll down to access the room management stuff, I
+> would like to keep everything inside that map
 
-- one commit: [`a1b2c3d`](https://github.com/YOUR-ORG/YOUR-REPO/commit/a1b2c3d)
-- a range:
-  [`a1b2c3d...e4f5a6b`](https://github.com/YOUR-ORG/YOUR-REPO/compare/a1b2c3d...e4f5a6b)
+Before rebuilding it, the agent asked three questions about the drill-down, and I took its recommended answer each time. Now every stage happens inside the map, with a floating panel and a dialog on top of it. Each stage is still a real URL, so the back button and a reload still work. The tests for the new stages were written first and failed before any markup changed. Then I had a hostile reviewer agent, with none of the drafting context, go through the change in Chrome. It found a real bug: signing in from a room's dialog left the map stuck on "Loading". That was fixed. Another of its findings didn't reproduce when checked by hand, so it was set aside ([`cf44a96`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit7-am167/commit/cf44a96)).
 
-To pair a prompt with the commit it produced, quote the prompt (curated, not a
-full transcript) next to the citation:
+**Making the floors realistic, twice.** 
+The agent's first version of the floor generator followed its own idea of a university layout: corridors lined with tutorial rooms. I asked it to rework the floors to look more like what I had in mind: "a few meeting rooms and lab rooms, and mostly desks/study spaces". I also asked for the database to keep existing bookings when the layout changed. The agent rebuilt the generator around a stair and lift core, a few rooms and individually bookable desks. On every boot it now moves rooms onto the new plan, keeping any room with an upcoming booking bookable until that booking is over ([`4793d93`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit7-am167/commit/4793d93)).
 
-> the prompt, verbatim
+When I saw the revised layout, it had taken "mostly desks" too literally, packing more than 10,000 desks into every free metre. I had to redirect it again:
 
-Screenshots are welcome where one carries the point better than a sentence does.
-Commit the file to this repo and link it with a **relative** path, which is what
-makes it render on GitHub: `![alt text](docs/before.png)`. Images don't count
-towards the word count and don't replace the citation.
+> i think you've dramtically overguessed the number of desks. you can roughly
+> triple thr number of labs/meeting rooms and cut number of desks and study
+> spaces by like 1/5 (20% the current amount)
 
-## Before you ship
-
-`pnpm check:evidence` verifies that this comment is gone, that your citations
-resolve to real commits, that a crit week's reflection entry is in
-`reflections/`, and that your `CLAUDE.md` is there. It checks that your account
-is traceable, not that it is good: that is the marker's call.
-
-Images aren't checked: unlike a citation whose SHA doesn't resolve, a broken
-image is visible the moment this file is rendered on GitHub.
+The campus went from 116 rooms and 10,552 desks to 356 rooms and 2,284 desks. The new numbers are held by tests that failed before the change, so the layout can't drift back ([`fb068e0`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit7-am167/commit/fb068e0)).
