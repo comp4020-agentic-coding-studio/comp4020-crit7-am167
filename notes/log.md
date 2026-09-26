@@ -382,3 +382,9 @@ a dark device, which the server can't know about.
   two) centred in the band, spaced 6.4 m apart instead of full-depth
   benches every 3.4 m. The result is 356 rooms (295 meeting rooms, 61 labs,
   3.1×) and 2,284 desks (21.6%).
+
+**Reflection drafted.** `reflections/crit-7.md` answers both standing
+prompts, drafted from this log and then edited down by the user (210
+words): the breakthrough was keeping every stage inside the map; the change
+was stating intent precisely and checking the rendered page, since each gap
+got filled with a plausible guess.
