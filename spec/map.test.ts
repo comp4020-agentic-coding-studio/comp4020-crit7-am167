@@ -75,36 +75,18 @@ describe("drilling down inside the map", () => {
     expect(stageOf(doc)).toBe("floor");
     expect(doc.querySelector("[data-scene]")).toBeTruthy();
 
-    // Each place is a button in a GET form, not a link: a link per room and
-    // desk is thousands of pages to a crawler. The form carries the date.
-    const form = doc.querySelector<HTMLFormElement>('form[method="get"][data-places]');
-    expect(form, "no form of places").toBeTruthy();
-    expect(form?.getAttribute("action")).toBe(`/b/${building.slug}/`);
-    expect(form?.querySelector<HTMLInputElement>('input[name="date"]')?.value).toBe(date);
-    const offered = [...(form?.querySelectorAll<HTMLButtonElement>('button[name="room"]') ?? [])]
-      .map((b) => b.value);
-
     const here = rooms.filter((room) => room.floor === floor);
     expect(here.length).toBeGreaterThan(0);
-    for (const room of here) expect(offered, room.code).toContain(room.slug);
+    const links = hrefs(doc);
+    for (const room of here) {
+      expect(links, room.code).toContain(`/b/${building.slug}/${room.slug}/?date=${date}`);
+    }
     // and nothing from another level is offered as if it were on this one
     for (const room of rooms.filter((r) => r.floor !== floor)) {
-      expect(offered, room.code).not.toContain(room.slug);
+      expect(links, room.code).not.toContain(`/b/${building.slug}/${room.slug}/?date=${date}`);
     }
-    const links = hrefs(doc);
-    expect(links.filter((l) => l.startsWith(`/b/${building.slug}/`) && l.split("/").length > 4))
-      .toEqual([]);
     // the way back up is there too
     expect(links).toContain(`/b/${building.slug}/?date=${date}`);
-
-    // picking one lands on that room's own URL, on the same day
-    const room = here[0];
-    const res = await fetch(
-      new URL(`/b/${building.slug}/?date=${date}&room=${room.slug}`, baseUrl),
-      { redirect: "manual" },
-    );
-    expect(res.status).toBe(303);
-    expect(res.headers.get("location")).toBe(`/b/${building.slug}/${room.slug}/?date=${date}`);
   });
 
   it("treats a level that doesn't exist as the building, not as a guess", async () => {
@@ -144,11 +126,11 @@ describe("drilling down inside the map", () => {
     });
 
     it("asks a visitor to sign in from inside the dialog", () => {
-      // A GET form, not a link, so a crawler doesn't fetch a sign-in page
-      // per page; submitting it lands on the same /login/?next= URL.
-      const signIn = dialog?.querySelector<HTMLFormElement>('form[method="get"][action="/login/"]');
-      expect(signIn, "no sign-in form in the dialog").toBeTruthy();
-      const next = signIn?.querySelector<HTMLInputElement>('[name="next"]')?.value ?? "";
+      const signIn = [...(dialog?.querySelectorAll<HTMLAnchorElement>("a[href]") ?? [])].find(
+        (a) => new URL(a.href).pathname === "/login/",
+      );
+      expect(signIn, "no sign-in link in the dialog").toBeTruthy();
+      const next = new URL(signIn?.href ?? baseUrl).searchParams.get("next") ?? "";
       expect(next).toContain(`/b/${building.slug}/${room.slug}/`);
     });
 
@@ -171,60 +153,5 @@ describe("drilling down inside the map", () => {
         String(room.id),
       );
     });
-  });
-});
-
-// A link checker follows every <a href>, so each link the pages print is a
-// page it must fetch. Links that step to another day (or carry the current
-// page into a sign-in URL) multiply every page by every date, and CI's live
-// link check runs out of time long before it gets through them. Those moves
-// are form submissions instead; what's left as links has to stay small.
-describe("what a link crawler sees", () => {
-  it("reaches a few pages per building, at today's date, and no rooms", async () => {
-    // the campus, each building's stages, and the app's own pages: no page
-    // per room or desk
-    const limit = 12 * BUILDINGS.length + 20;
-    const seen = new Set(["/"]);
-    const queue = ["/"];
-    while (queue.length > 0 && seen.size <= limit) {
-      const batch = queue.splice(0, 16);
-      await Promise.all(
-        batch.map(async (path) => {
-          const res = await fetch(new URL(path, baseUrl));
-          if (!(res.headers.get("content-type") ?? "").includes("html")) return;
-          const doc = new JSDOM(await res.text(), { url: new URL(path, baseUrl).href }).window
-            .document;
-          for (const href of hrefs(doc)) {
-            if (href.startsWith("/_astro/") || seen.has(href)) continue;
-            seen.add(href);
-            queue.push(href);
-          }
-        }),
-      );
-    }
-    expect(seen.size, `the crawl passed ${limit} pages`).toBeLessThanOrEqual(limit);
-    const dates = new Set([...seen].map((p) => new URL(p, baseUrl).searchParams.get("date")));
-    dates.delete(null);
-    expect([...dates], "links step to other days").toEqual([today()]);
-    expect([...seen].filter((p) => p.startsWith("/login/?"))).toEqual([]);
-    expect([...seen].filter((p) => new URL(p, baseUrl).searchParams.has("start"))).toEqual([]);
-    expect([...seen].filter((p) => /^\/b\/[^/]+\/[^/?]+\//.test(p))).toEqual([]);
-  });
-
-  it("steps a day with the arrows, landing on that day's own URL", async () => {
-    const doc = await page(`/b/${building.slug}/?date=${date}&floor=0`);
-    const days = [...doc.querySelectorAll<HTMLButtonElement>('form.datestrip button[name="day"]')];
-    expect(days.map((b) => b.value)).toEqual([addDays(date, -1), addDays(date, 1)]);
-
-    const res = await fetch(
-      new URL(`/b/${building.slug}/?floor=0&date=${date}&day=${addDays(date, 1)}`, baseUrl),
-      { redirect: "manual" },
-    );
-    expect(res.status).toBe(303);
-    const to = new URL(res.headers.get("location") ?? "", baseUrl);
-    expect(to.pathname).toBe(`/b/${building.slug}/`);
-    expect(to.searchParams.get("date")).toBe(addDays(date, 1));
-    expect(to.searchParams.get("floor")).toBe("0");
-    expect(to.searchParams.has("day")).toBe(false);
   });
 });

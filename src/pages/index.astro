@@ -5,12 +5,9 @@ import MapPanel from "../components/MapPanel.astro";
 import Shell from "../components/Shell.astro";
 import { currentUser } from "../lib/auth";
 import { campusOverview, errorMessage } from "../lib/booking";
-import { buildingUrl, dayRedirect, withQuery } from "../lib/links";
+import { buildingUrl, withQuery } from "../lib/links";
 import { swatchVars } from "../lib/palette";
 import { SLOTS, dateLabel, isBookableDate, slotTime, today } from "../lib/slots";
-
-const toDay = dayRedirect(Astro.url);
-if (toDay) return Astro.redirect(toDay, 303);
 
 const user = currentUser(Astro.cookies);
 const params = Astro.url.searchParams;

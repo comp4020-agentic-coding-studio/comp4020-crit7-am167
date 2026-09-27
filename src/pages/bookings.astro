@@ -53,10 +53,9 @@ const refreshIn = boundaries.length
     {!user && (
         <div class="empty">
             <p>You're not signed in, so there's nothing to show yet.</p>
-            <form class="signin" method="get" action="/login/">
-                <input type="hidden" name="next" value="/bookings/" />
-                <button class="btn btn-primary" type="submit">Sign in</button>
-            </form>
+            <a class="btn btn-primary" href="/login/?next=%2Fbookings%2F">
+                Sign in
+            </a>
         </div>
     )}
 

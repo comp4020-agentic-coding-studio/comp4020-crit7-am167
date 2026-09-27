@@ -5,9 +5,9 @@ import MapFrame from "../../../components/MapFrame.astro";
 import MapPanel from "../../../components/MapPanel.astro";
 import Shell from "../../../components/Shell.astro";
 import { currentUser } from "../../../lib/auth";
-import { buildingBySlug, errorMessage, levelsOf, roomsInBuilding } from "../../../lib/booking";
+import { buildingBySlug, errorMessage, levelsOf } from "../../../lib/booking";
 import { levelName, levelTag } from "../../../lib/levels";
-import { buildingUrl, dayRedirect, roomSlug, roomUrl } from "../../../lib/links";
+import { buildingUrl } from "../../../lib/links";
 import { swatchVars } from "../../../lib/palette";
 import { dateLabel, isBookableDate, today } from "../../../lib/slots";
 
@@ -15,9 +15,6 @@ import { dateLabel, isBookableDate, today } from "../../../lib/slots";
 // fan apart and you pick a level; with it, the camera looks straight down on
 // that level and you pick a room. A level that doesn't exist is the building
 // stage — showing a guess would look like an answer.
-
-const toDay = dayRedirect(Astro.url);
-if (toDay) return Astro.redirect(toDay, 303);
 
 const { slug } = Astro.params;
 const building = slug ? buildingBySlug(slug) : undefined;
@@ -27,16 +24,6 @@ const user = currentUser(Astro.cookies);
 const params = Astro.url.searchParams;
 const requested = params.get("date") ?? today();
 const date = isBookableDate(requested) ? requested : today();
-
-// A level's rooms and desks are buttons in a GET form (a link each would be
-// thousands of pages to a crawler), which lands here with `room=`: send it
-// on to that room's own URL.
-const picked = params.get("room");
-const pickedRoom = picked
-  ? roomsInBuilding(building.id).find((r) => roomSlug(r.code) === picked)
-  : undefined;
-const toRoom = pickedRoom ? roomUrl(building.slug, pickedRoom.code, { date }) : null;
-if (toRoom) return Astro.redirect(toRoom, 303);
 
 const requestedFloor = params.has("floor") ? Number(params.get("floor")) : NaN;
 const floor =

@@ -7,10 +7,9 @@ import { SLOTS, slotTime } from "../lib/slots";
 // 20:00 — which is narrow enough to sit in a dialog on a phone without
 // scrolling sideways, and still one cell per half hour you could book.
 //
-// Every free cell is a submit button in a GET form that reloads the dialog
-// with that start time chosen, so it works with JavaScript off; with it on,
-// the dialog's script just sets the form instead. Buttons, not links: a link
-// per free half hour per room is tens of thousands of pages to a crawler. Colour never carries the state alone: taken
+// Every free cell is a LINK that reloads the dialog with that start time
+// chosen, so it works with JavaScript off; with it on, the dialog's script
+// just sets the form instead. Colour never carries the state alone: taken
 // cells are hatched, yours are inked, and every cell says what it is in
 // text a screen reader reads out.
 
@@ -29,7 +28,7 @@ interface Props {
 const { buildingSlug, code, date, bookings, pastBefore, userId, picked } = Astro.props;
 
 type Cell =
-  | { slot: number; state: "free"; label: string }
+  | { slot: number; state: "free"; href: string; label: string }
   | { slot: number; state: "busy" | "mine" | "past"; label: string };
 
 const cells: Cell[] = Array.from({ length: SLOTS }, (_, slot) => {
@@ -46,6 +45,7 @@ const cells: Cell[] = Array.from({ length: SLOTS }, (_, slot) => {
   return {
     slot,
     state: "free",
+    href: `${roomUrl(buildingSlug, code, { date, start: slot })}#book`,
     label: `${slotTime(slot)} free — start a booking here`,
   };
 });
@@ -55,8 +55,7 @@ const rows = [cells.slice(0, half), cells.slice(half)];
 const isPicked = (slot: number) => picked !== undefined && slot >= picked[0] && slot < picked[1];
 ---
 
-<form class="roomday" method="get" action={`${roomUrl(buildingSlug, code)}#book`} data-roomday>
-  <input type="hidden" name="date" value={date} />
+<div class="roomday" data-roomday>
   {
     rows.map((row) => (
       <div class="roomday-row">
@@ -64,17 +63,15 @@ const isPicked = (slot: number) => picked !== undefined && slot >= picked[0] && 
           {row.map((cell) => (
             <li>
               {cell.state === "free" ? (
-                <button
+                <a
                   class="slot"
-                  type="submit"
-                  name="start"
-                  value={cell.slot}
                   data-state="free"
                   data-slot={cell.slot}
                   data-picked={isPicked(cell.slot) ? "" : undefined}
+                  href={cell.href}
                 >
                   <span class="visually-hidden">{cell.label}</span>
-                </button>
+                </a>
               ) : (
                 <span class="slot" data-state={cell.state} data-slot={cell.slot}>
                   <span class="visually-hidden">{cell.label}</span>
@@ -94,4 +91,4 @@ const isPicked = (slot: number) => picked !== undefined && slot >= picked[0] && 
       </div>
     ))
   }
-</form>
+</div>

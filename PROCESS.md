@@ -56,3 +56,18 @@ The campus went from 116 rooms and 10,552 desks to 356 rooms and 2,284 desks.
 The new numbers are held by tests that failed before the change, so the
 layout can't drift back
 ([`fb068e0`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit7-am167/commit/fb068e0)).
+
+**Changing the link check, not the app.**
+CI's live link check kept timing out. The agent read that as a problem with
+the app and, over three commits, turned the date arrows, time slots, sign-in
+link and every room and desk into form buttons so the crawler would have fewer
+URLs to follow
+([`668a7a8`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit7-am167/commit/668a7a8),
+[`eff928e`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit7-am167/commit/eff928e),
+[`2638a1d`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit7-am167/commit/2638a1d)).
+The course convenor pointed out that the limit is in the check: linkinator's
+`--recurse` treats every distinct query string as a new page, so a site built
+on `?date=` URLs never runs out of pages. I reverted all three commits and
+added `--skip "\?"` to the linkinator line in
+`.github/workflows/checks.yml`. Query-string URLs are no longer crawled, but
+every path link is still checked, and a broken one still fails the build.

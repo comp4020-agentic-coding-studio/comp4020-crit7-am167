@@ -2,7 +2,7 @@
 import { BUILDINGS } from "../data/campus";
 import type { BookingRow } from "../lib/booking";
 import { isDesk, planCores } from "../lib/floorplan";
-import { roomSlug } from "../lib/links";
+import { roomUrl } from "../lib/links";
 import { swatchVars } from "../lib/palette";
 import type { Building, Room } from "../lib/schema";
 import { SLOTS } from "../lib/slots";
@@ -12,11 +12,9 @@ import { SLOTS } from "../lib/slots";
 //
 // This is server-rendered SVG, always in the page: it's what a visitor sees
 // before the 3D scene finishes loading, what they keep if WebGL isn't
-// available or they've asked for reduced motion. Tapping a room or desk opens
-// it, but the shapes aren't links: a link per desk hands a crawler thousands
-// of pages. So the plan is one labelled picture, and the list of rooms and
-// desks beside it (buttons in a form) is the way in by keyboard, screen
-// reader, or with JavaScript off.
+// available or they've asked for reduced motion, and what the accessibility
+// check can actually read. Every room is a real link with a real label, so
+// the plan is navigable by keyboard whether or not the canvas ever appears.
 
 interface Props {
   building: Building;
@@ -94,16 +92,10 @@ const coreGroups = turned(cores);
 const cellGroups = turned(cells.map((cell) => ({ ...cell, ...cell.room })));
 ---
 
-<figure
-  class="floorplan"
-  data-floorplan
-  data-building={building.slug}
-  data-date={date}
-  style={swatchVars(building.code)}
->
+<figure class="floorplan" data-floorplan style={swatchVars(building.code)}>
   <svg
     viewBox={`${minX.toFixed(1)} ${minZ.toFixed(1)} ${width.toFixed(1)} ${height.toFixed(1)}`}
-    role="img"
+    role="group"
     aria-label={`Floor plan of ${building.name}`}
     preserveAspectRatio="xMidYMid meet"
   >
@@ -121,15 +113,17 @@ const cellGroups = turned(cells.map((cell) => ({ ...cell, ...cell.room })));
       cellGroups.map(({ deg, items }) => (
         <g transform={`rotate(${deg})`}>
           {items.map(({ room, free, desk, what, state, tint, x, y }) => (
-            <g
+            <a
+              href={roomUrl(building.slug, room.code, { date })}
               class="fp-room"
-              data-room={roomSlug(room.code)}
               data-kind={desk ? "desk" : "room"}
               data-state={state}
+              aria-label={`${room.code}, ${what}, ${free} of ${SLOTS} half hours free`}
             >
-              {/* a room gets a <title>, the hover tooltip. A desk is too
-                  small to hover usefully, and there are hundreds, so it goes
-                  without */}
+              {/* a room also gets a <title>, the hover tooltip; aria-label
+                  is the name, because an SVG <a> carrying only a <title>
+                  reads as unnamed to some tooling. A desk is too small to
+                  hover usefully, and there are hundreds, so it goes without */}
               {!desk && (
                 <title>
                   {room.code} — {what} — {free} of {SLOTS} half hours free
@@ -143,7 +137,7 @@ const cellGroups = turned(cells.map((cell) => ({ ...cell, ...cell.room })));
                 style={`--tint:${tint.toFixed(2)}`}
                 rx={desk ? "0.12" : "0.4"}
               />
-            </g>
+            </a>
           ))}
         </g>
       ))
@@ -154,19 +148,3 @@ const cellGroups = turned(cells.map((cell) => ({ ...cell, ...cell.room })));
     invented. Tap a room or desk to see its day.
   </figcaption>
 </figure>
-
-<script>
-  import { navigate } from "astro:transitions/client";
-
-  // A tap on a room or desk opens it. Wired on every page load, because the
-  // router swaps the plan out under us.
-  document.addEventListener("astro:page-load", () => {
-    for (const plan of document.querySelectorAll<HTMLElement>("[data-floorplan]")) {
-      plan.addEventListener("click", (event) => {
-        const room = (event.target as Element).closest("[data-room]")?.getAttribute("data-room");
-        const { building, date } = plan.dataset;
-        if (room && building && date) void navigate(`/b/${building}/${room}/?date=${date}`);
-      });
-    }
-  });
-</script>

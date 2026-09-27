@@ -188,14 +188,12 @@ const here = roomUrl(building.slug, room.code, { date });
       ) : (
         <div class="empty">
           <p>Sign in to book this {noun}. Any uni ID works.</p>
-          <form class="signin" method="get" action="/login/">
-            <input
-              type="hidden"
-              name="next"
-              value={roomUrl(building.slug, room.code, { date, start })}
-            />
-            <button class="btn btn-primary" type="submit">Sign in</button>
-          </form>
+          <a
+            class="btn btn-primary"
+            href={`/login/?next=${encodeURIComponent(roomUrl(building.slug, room.code, { date, start }))}`}
+          >
+            Sign in
+          </a>
         </div>
       )
     }

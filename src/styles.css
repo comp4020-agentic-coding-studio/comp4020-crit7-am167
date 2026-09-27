@@ -1063,14 +1063,15 @@ select {
   fill-opacity: 1;
 }
 
-.fp-room {
-  cursor: pointer;
-}
-
-.fp-room:hover rect {
+.fp-room:hover rect,
+.fp-room:focus-visible rect {
   fill-opacity: 1;
   stroke: var(--ink);
   stroke-width: 0.8;
+}
+
+.fp-room:focus-visible {
+  outline: none;
 }
 
 /* --- the map ------------------------------------------------------------- */
@@ -1390,19 +1391,10 @@ select {
   color: var(--on-hue);
 }
 
-/* a level's rooms and desks: submit buttons in one GET form (see
-   FloorPanel.astro), which takes no room of its own */
-.places {
-  display: contents;
-}
-
 /* a room, in a level's list */
 .roomrow {
   grid-template-columns: minmax(0, 1fr) auto;
   border-left-width: 1px;
-  width: 100%;
-  text-align: start;
-  cursor: pointer;
 }
 
 .roomrow[aria-current="true"] {
@@ -1503,8 +1495,6 @@ select {
   font-weight: 650;
   text-decoration: none;
   overflow: hidden;
-  width: 100%;
-  cursor: pointer;
 }
 
 .desk::after {
@@ -1864,15 +1854,9 @@ select {
   font-weight: 600;
 }
 
-.datestrip button:disabled {
+.datestrip [aria-disabled="true"] {
   opacity: 0.35;
   pointer-events: none;
-}
-
-/* the sign-in buttons sit in GET forms (not links, so a crawler doesn't
-   fetch a sign-in page per page); the form itself takes no room */
-.signin {
-  display: contents;
 }
 
 /* --- filters ------------------------------------------------------------- */

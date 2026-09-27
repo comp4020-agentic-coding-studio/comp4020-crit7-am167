@@ -435,3 +435,17 @@ Both went red (the crawl found 1,313), then green. Locally, linkinator now
 scans 52 links in 0.23 s. Checked in Chrome at 1440×900 / 390×844: rows and
 desk tiles look unchanged, and the row, desk and plan clicks each open the
 right room.
+
+**Reverted the crawlability changes; fixed the link check instead.** The course
+convenor said not to change the app for this: linkinator's `--recurse` treats
+every distinct query string as a new page, so a query-string site never runs
+out of pages, and the workflow is ours to fix. That reverses the earlier
+assumption that the check was fixed and the app had to fit it (the user had
+picked option B for that reason). The user: "revert those changes and update
+the work flow itself".
+- `git revert` of `2638a1d`, `eff928e`, `668a7a8` (app, styles, `spec/map.test.ts`).
+  This log is kept as it was, as the record of what happened.
+- `.github/workflows/checks.yml`: linkinator gets a second `--skip "\?"`, as
+  the convenor suggested. Path links are still crawled and still fail the build
+  if broken.
+- PROCESS.md gets a paragraph on the change and why.
