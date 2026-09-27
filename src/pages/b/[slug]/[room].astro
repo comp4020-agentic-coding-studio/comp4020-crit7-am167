@@ -5,7 +5,7 @@ import RoomDialog from "../../../components/RoomDialog.astro";
 import Shell from "../../../components/Shell.astro";
 import { currentUser } from "../../../lib/auth";
 import { bookingsOn, buildingBySlug, errorMessage, roomsInBuilding } from "../../../lib/booking";
-import { buildingUrl, roomSlug } from "../../../lib/links";
+import { buildingUrl, dayRedirect, roomSlug } from "../../../lib/links";
 import { swatchVars } from "../../../lib/palette";
 import { SLOTS, currentSlot, isBookableDate, today } from "../../../lib/slots";
 
@@ -13,6 +13,9 @@ import { SLOTS, currentSlot, isBookableDate, today } from "../../../lib/slots";
 // room's dialog open in front of it. A booking posts from the dialog and
 // 303s back here, so it lands with the dialog still open and the room now
 // inked as yours on the map behind.
+
+const toDay = dayRedirect(Astro.url);
+if (toDay) return Astro.redirect(toDay, 303);
 
 const { slug, room: roomParam } = Astro.params;
 const building = slug ? buildingBySlug(slug) : undefined;

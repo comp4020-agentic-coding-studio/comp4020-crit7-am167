@@ -388,3 +388,23 @@ prompts, drafted from this log and then edited down by the user (210
 words): the breakthrough was keeping every stage inside the map; the change
 was stating intent precisely and checking the rendered page, since each gap
 got filled with a plausible guess.
+
+**CI deploy kept timing out: the site was too big to crawl.** The repo was
+public and the Fly deploy had gone through, but both `checks` runs got
+cancelled at the 10-minute job limit inside "Check internal links on the
+live site". Linkinator follows every `<a href>`, and the pages printed about
+2,640 room pages × 15 dates (the date strip's ◀/▶ links) × about 24 free
+half-hour links per room (`?start=`) × 2 (a `/login/?next=<this page>` link
+on every page): tens of thousands of URLs. Rather than widen the
+course-supplied `--skip` pattern, the moves that multiplied pages are now
+GET-form submissions that land on the same URLs:
+- date arrows are `<button name="day">`, which the page 303-redirects to
+  its own `?date=` URL (`dayRedirect` in `src/lib/links.ts`);
+- free slot cells are `<button name="start">` in a GET form to `…#book`;
+- every Sign in is a GET form with a hidden `next`.
+TDD: `spec/map.test.ts` gained a crawl test (from `/`, every link is at
+today's date, with no `start=` or `login?next=`, bounded by room count). It
+went red at 1,228 URLs, then green at about 2,700 (one per room). The
+dialog's sign-in test now expects the form. Checked in Chrome at 1440×900 and
+390×844. The next-day, slot and sign-in buttons land on
+`?floor=1&date=…`, `?date=…&start=17#book` and `/login/?next=…` as before.

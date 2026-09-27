@@ -126,11 +126,11 @@ describe("drilling down inside the map", () => {
     });
 
     it("asks a visitor to sign in from inside the dialog", () => {
-      const signIn = [...(dialog?.querySelectorAll<HTMLAnchorElement>("a[href]") ?? [])].find(
-        (a) => new URL(a.href).pathname === "/login/",
-      );
-      expect(signIn, "no sign-in link in the dialog").toBeTruthy();
-      const next = new URL(signIn?.href ?? baseUrl).searchParams.get("next") ?? "";
+      // A GET form, not a link, so a crawler doesn't fetch a sign-in page
+      // per page; submitting it lands on the same /login/?next= URL.
+      const signIn = dialog?.querySelector<HTMLFormElement>('form[method="get"][action="/login/"]');
+      expect(signIn, "no sign-in form in the dialog").toBeTruthy();
+      const next = signIn?.querySelector<HTMLInputElement>('[name="next"]')?.value ?? "";
       expect(next).toContain(`/b/${building.slug}/${room.slug}/`);
     });
 
@@ -153,5 +153,63 @@ describe("drilling down inside the map", () => {
         String(room.id),
       );
     });
+  });
+});
+
+// A link checker follows every <a href>, so each link the pages print is a
+// page it must fetch. Links that step to another day (or carry the current
+// page into a sign-in URL) multiply every page by every date, and CI's live
+// link check runs out of time long before it gets through them. Those moves
+// are form submissions instead; what's left as links has to stay small.
+describe("what a link crawler sees", () => {
+  it("reaches each room once, at today's date, and little else", async () => {
+    // one page per room, plus a handful per building and the app's own pages
+    let roomCount = 0;
+    for (const b of BUILDINGS) {
+      const res = await fetch(new URL(`/api/rooms?building=${b.slug}`, baseUrl));
+      roomCount += ((await res.json()) as ApiRoom[]).length;
+    }
+    const limit = roomCount + 20 * BUILDINGS.length + 20;
+    const seen = new Set(["/"]);
+    const queue = ["/"];
+    while (queue.length > 0 && seen.size <= limit) {
+      const batch = queue.splice(0, 32);
+      await Promise.all(
+        batch.map(async (path) => {
+          const res = await fetch(new URL(path, baseUrl));
+          if (!(res.headers.get("content-type") ?? "").includes("html")) return;
+          const doc = new JSDOM(await res.text(), { url: new URL(path, baseUrl).href }).window
+            .document;
+          for (const href of hrefs(doc)) {
+            if (href.startsWith("/_astro/") || seen.has(href)) continue;
+            seen.add(href);
+            queue.push(href);
+          }
+        }),
+      );
+    }
+    expect(seen.size, `the crawl passed ${limit} pages`).toBeLessThanOrEqual(limit);
+    const dates = new Set([...seen].map((p) => new URL(p, baseUrl).searchParams.get("date")));
+    dates.delete(null);
+    expect([...dates], "links step to other days").toEqual([today()]);
+    expect([...seen].filter((p) => p.startsWith("/login/?"))).toEqual([]);
+    expect([...seen].filter((p) => new URL(p, baseUrl).searchParams.has("start"))).toEqual([]);
+  }, 60_000);
+
+  it("steps a day with the arrows, landing on that day's own URL", async () => {
+    const doc = await page(`/b/${building.slug}/?date=${date}&floor=0`);
+    const days = [...doc.querySelectorAll<HTMLButtonElement>('form.datestrip button[name="day"]')];
+    expect(days.map((b) => b.value)).toEqual([addDays(date, -1), addDays(date, 1)]);
+
+    const res = await fetch(
+      new URL(`/b/${building.slug}/?floor=0&date=${date}&day=${addDays(date, 1)}`, baseUrl),
+      { redirect: "manual" },
+    );
+    expect(res.status).toBe(303);
+    const to = new URL(res.headers.get("location") ?? "", baseUrl);
+    expect(to.pathname).toBe(`/b/${building.slug}/`);
+    expect(to.searchParams.get("date")).toBe(addDays(date, 1));
+    expect(to.searchParams.get("floor")).toBe("0");
+    expect(to.searchParams.has("day")).toBe(false);
   });
 });

@@ -1,9 +1,10 @@
 ---
-import { withQuery } from "../lib/links";
 import { addDays, bookableDates, dateLabel, isBookableDate, today } from "../lib/slots";
 
 // Which day you're looking at. A GET form with a real <select>, so it works
-// with JavaScript off; the arrows either side are plain links.
+// with JavaScript off. The arrows either side submit it too, as `day=` — the
+// page redirects that to its own `date=` URL — rather than being links, which
+// would hand a crawler every day of every page to walk.
 
 interface Props {
   date: string;
@@ -29,15 +30,16 @@ const now = today();
       <input type="hidden" name={name} value={String(value)} />
     ))
   }
-  <a
+  <button
     class="btn btn-quiet btn-sm"
-    href={isBookableDate(previous) ? withQuery(action, { ...keep, date: previous }) : "#"}
-    aria-disabled={isBookableDate(previous) ? undefined : "true"}
-    tabindex={isBookableDate(previous) ? undefined : -1}
+    type="submit"
+    name="day"
+    value={previous}
+    disabled={!isBookableDate(previous)}
   >
     <span aria-hidden="true">&#9664;</span>
     <span class="visually-hidden">Previous day</span>
-  </a>
+  </button>
 
   <div class="datestrip-field">
     <label class="visually-hidden" for={id}>Date</label>
@@ -53,15 +55,16 @@ const now = today();
     </select>
   </div>
 
-  <a
+  <button
     class="btn btn-quiet btn-sm"
-    href={isBookableDate(next) ? withQuery(action, { ...keep, date: next }) : "#"}
-    aria-disabled={isBookableDate(next) ? undefined : "true"}
-    tabindex={isBookableDate(next) ? undefined : -1}
+    type="submit"
+    name="day"
+    value={next}
+    disabled={!isBookableDate(next)}
   >
     <span aria-hidden="true">&#9654;</span>
     <span class="visually-hidden">Next day</span>
-  </a>
+  </button>
 
   <noscript><button class="btn btn-sm" type="submit">Go</button></noscript>
 </form>

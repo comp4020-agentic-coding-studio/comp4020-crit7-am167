@@ -1854,9 +1854,15 @@ select {
   font-weight: 600;
 }
 
-.datestrip [aria-disabled="true"] {
+.datestrip button:disabled {
   opacity: 0.35;
   pointer-events: none;
+}
+
+/* the sign-in buttons sit in GET forms (not links, so a crawler doesn't
+   fetch a sign-in page per page); the form itself takes no room */
+.signin {
+  display: contents;
 }
 
 /* --- filters ------------------------------------------------------------- */

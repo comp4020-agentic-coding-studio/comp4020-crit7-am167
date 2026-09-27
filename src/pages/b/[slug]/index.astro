@@ -7,7 +7,7 @@ import Shell from "../../../components/Shell.astro";
 import { currentUser } from "../../../lib/auth";
 import { buildingBySlug, errorMessage, levelsOf } from "../../../lib/booking";
 import { levelName, levelTag } from "../../../lib/levels";
-import { buildingUrl } from "../../../lib/links";
+import { buildingUrl, dayRedirect } from "../../../lib/links";
 import { swatchVars } from "../../../lib/palette";
 import { dateLabel, isBookableDate, today } from "../../../lib/slots";
 
@@ -15,6 +15,9 @@ import { dateLabel, isBookableDate, today } from "../../../lib/slots";
 // fan apart and you pick a level; with it, the camera looks straight down on
 // that level and you pick a room. A level that doesn't exist is the building
 // stage — showing a guess would look like an answer.
+
+const toDay = dayRedirect(Astro.url);
+if (toDay) return Astro.redirect(toDay, 303);
 
 const { slug } = Astro.params;
 const building = slug ? buildingBySlug(slug) : undefined;
