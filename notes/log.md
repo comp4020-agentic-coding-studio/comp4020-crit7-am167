@@ -408,3 +408,10 @@ went red at 1,228 URLs, then green at about 2,700 (one per room). The
 dialog's sign-in test now expects the form. Checked in Chrome at 1440×900 and
 390×844. The next-day, slot and sign-in buttons land on
 `?floor=1&date=…`, `?date=…&start=17#book` and `/login/?next=…` as before.
+
+**The crawl test was too slow for CI.** Run 36300680653 failed on `668a7a8`.
+The new crawl test fetched every room page, which took about 35 s locally
+and passed the 60 s timeout on the runner, so `deploy` was skipped. It now
+counts every link but fetches only one room page per building, since room
+pages all print the same links. The suite is back to about 3 s. A mutation
+check (putting back the old `?start=` slot links) still turns it red.
