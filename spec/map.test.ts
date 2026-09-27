@@ -75,18 +75,36 @@ describe("drilling down inside the map", () => {
     expect(stageOf(doc)).toBe("floor");
     expect(doc.querySelector("[data-scene]")).toBeTruthy();
 
+    // Each place is a button in a GET form, not a link: a link per room and
+    // desk is thousands of pages to a crawler. The form carries the date.
+    const form = doc.querySelector<HTMLFormElement>('form[method="get"][data-places]');
+    expect(form, "no form of places").toBeTruthy();
+    expect(form?.getAttribute("action")).toBe(`/b/${building.slug}/`);
+    expect(form?.querySelector<HTMLInputElement>('input[name="date"]')?.value).toBe(date);
+    const offered = [...(form?.querySelectorAll<HTMLButtonElement>('button[name="room"]') ?? [])]
+      .map((b) => b.value);
+
     const here = rooms.filter((room) => room.floor === floor);
     expect(here.length).toBeGreaterThan(0);
-    const links = hrefs(doc);
-    for (const room of here) {
-      expect(links, room.code).toContain(`/b/${building.slug}/${room.slug}/?date=${date}`);
-    }
+    for (const room of here) expect(offered, room.code).toContain(room.slug);
     // and nothing from another level is offered as if it were on this one
     for (const room of rooms.filter((r) => r.floor !== floor)) {
-      expect(links, room.code).not.toContain(`/b/${building.slug}/${room.slug}/?date=${date}`);
+      expect(offered, room.code).not.toContain(room.slug);
     }
+    const links = hrefs(doc);
+    expect(links.filter((l) => l.startsWith(`/b/${building.slug}/`) && l.split("/").length > 4))
+      .toEqual([]);
     // the way back up is there too
     expect(links).toContain(`/b/${building.slug}/?date=${date}`);
+
+    // picking one lands on that room's own URL, on the same day
+    const room = here[0];
+    const res = await fetch(
+      new URL(`/b/${building.slug}/?date=${date}&room=${room.slug}`, baseUrl),
+      { redirect: "manual" },
+    );
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe(`/b/${building.slug}/${room.slug}/?date=${date}`);
   });
 
   it("treats a level that doesn't exist as the building, not as a guess", async () => {
@@ -162,19 +180,10 @@ describe("drilling down inside the map", () => {
 // link check runs out of time long before it gets through them. Those moves
 // are form submissions instead; what's left as links has to stay small.
 describe("what a link crawler sees", () => {
-  it("reaches each room once, at today's date, and little else", async () => {
-    // one page per room, plus a handful per building and the app's own pages
-    let roomCount = 0;
-    for (const b of BUILDINGS) {
-      const res = await fetch(new URL(`/api/rooms?building=${b.slug}`, baseUrl));
-      roomCount += ((await res.json()) as ApiRoom[]).length;
-    }
-    const limit = roomCount + 20 * BUILDINGS.length + 20;
-    // Every link is counted, but only one room page per building is fetched:
-    // room pages all print the same links, and fetching thousands of them
-    // outruns the test's time on a CI runner.
-    const roomPage = /^\/b\/([^/]+)\/[^/?]+\//;
-    const sampled = new Set<string>();
+  it("reaches a few pages per building, at today's date, and no rooms", async () => {
+    // the campus, each building's stages, and the app's own pages: no page
+    // per room or desk
+    const limit = 12 * BUILDINGS.length + 20;
     const seen = new Set(["/"]);
     const queue = ["/"];
     while (queue.length > 0 && seen.size <= limit) {
@@ -188,11 +197,6 @@ describe("what a link crawler sees", () => {
           for (const href of hrefs(doc)) {
             if (href.startsWith("/_astro/") || seen.has(href)) continue;
             seen.add(href);
-            const building = roomPage.exec(href)?.[1];
-            if (building !== undefined) {
-              if (sampled.has(building)) continue;
-              sampled.add(building);
-            }
             queue.push(href);
           }
         }),
@@ -204,6 +208,7 @@ describe("what a link crawler sees", () => {
     expect([...dates], "links step to other days").toEqual([today()]);
     expect([...seen].filter((p) => p.startsWith("/login/?"))).toEqual([]);
     expect([...seen].filter((p) => new URL(p, baseUrl).searchParams.has("start"))).toEqual([]);
+    expect([...seen].filter((p) => /^\/b\/[^/]+\/[^/?]+\//.test(p))).toEqual([]);
   });
 
   it("steps a day with the arrows, landing on that day's own URL", async () => {

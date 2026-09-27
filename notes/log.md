@@ -415,3 +415,23 @@ and passed the 60 s timeout on the runner, so `deploy` was skipped. It now
 counts every link but fetches only one room page per building, since room
 pages all print the same links. The suite is back to about 3 s. A mutation
 check (putting back the old `?start=` slot links) still turns it red.
+
+**The live link check still timed out after `eff928e`: room and desk links.**
+`check` passed and the deploy went out, but linkinator ran out of time
+again. Timed against the live site, it managed about 1.5 pages/s, and every
+room and desk on a floor (356 + 2,284) was still its own `<a href>`: about
+30 minutes of crawling. Options put to the user: (A) narrow the CI
+`--skip` to leave out room pages, or (B) stop room and desk entries being
+links. The user chose B, so the course's check stays as it is.
+- A level's room rows and desk tiles are `<button name="room">` in one GET
+  form (`data-places`) to the building URL, which 303-redirects `?room=` to
+  the room's own URL. This still works with JS off and by keyboard.
+- The fallback SVG plan's shapes are `<g data-room>`, opened by a click
+  handler (`navigate`). The SVG is one `role="img"`, and the list is the
+  keyboard/screen-reader way in.
+TDD: the floor test now expects the form and the redirect, and no room
+links. The crawl test expects no room pages and at most 12 per building.
+Both went red (the crawl found 1,313), then green. Locally, linkinator now
+scans 52 links in 0.23 s. Checked in Chrome at 1440×900 / 390×844: rows and
+desk tiles look unchanged, and the row, desk and plan clicks each open the
+right room.

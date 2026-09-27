@@ -2,7 +2,7 @@
 import { bookingsOn, levelsOf, roomsInBuilding } from "../lib/booking";
 import { deskArea, isDesk, labelFor, shortCode, type RoomKind } from "../lib/floorplan";
 import { levelName, levelTag, levelTitle } from "../lib/levels";
-import { buildingUrl, roomSlug, roomUrl } from "../lib/links";
+import { buildingUrl, roomSlug } from "../lib/links";
 import type { Building, User } from "../lib/schema";
 import { SLOTS, currentSlot, dateLabel, today } from "../lib/slots";
 import DateStrip from "./DateStrip.astro";
@@ -18,6 +18,10 @@ import MapPanel from "./MapPanel.astro";
 // of up to fifty: each area folds up to one line saying how many are free,
 // and opens to a grid of desk numbers shaded by how much of the day each has
 // left. A strip per desk would be a list hundreds of rows long.
+//
+// Rooms and desks are submit buttons in one GET form rather than links: a
+// link each would hand a crawler thousands of pages. Picking one goes to the
+// building URL with `room=`, which redirects to that room's own page.
 //
 // The same panel sits behind a room's dialog, where the dialog carries the
 // page's heading and date, so both are switchable here.
@@ -130,7 +134,8 @@ const deskTitle = (row: (typeof rows)[number]) =>
         <p>Nothing bookable on this level.</p>
       </div>
     ) : (
-      <>
+      <form class="places" method="get" action={buildingUrl(building.slug)} data-places>
+        <input type="hidden" name="date" value={date} />
         <div class="section-head">
           <h2 class="mappanel-section">Rooms · {dateLabel(date)}</h2>
           <ul class="legend">
@@ -153,9 +158,11 @@ const deskTitle = (row: (typeof rows)[number]) =>
         <ul class="roomlist">
           {roomRows.map(({ room, slug, slots, free, yours }) => (
             <li>
-              <a
+              <button
                 class="roomrow"
-                href={roomUrl(building.slug, room.code, { date })}
+                type="submit"
+                name="room"
+                value={slug}
                 aria-current={slug === selected ? "true" : undefined}
                 data-map-hover={`room:${slug}`}
               >
@@ -174,7 +181,7 @@ const deskTitle = (row: (typeof rows)[number]) =>
                     <i data-state={state} />
                   ))}
                 </span>
-              </a>
+              </button>
             </li>
           ))}
         </ul>
@@ -204,9 +211,11 @@ const deskTitle = (row: (typeof rows)[number]) =>
                   <ul class="desks">
                     {desks.map((row) => (
                       <li>
-                        <a
+                        <button
                           class="desk"
-                          href={roomUrl(building.slug, row.room.code, { date })}
+                          type="submit"
+                          name="room"
+                          value={row.slug}
                           aria-current={row.slug === selected ? "true" : undefined}
                           aria-label={deskTitle(row)}
                           data-map-hover={`room:${row.slug}`}
@@ -214,7 +223,7 @@ const deskTitle = (row: (typeof rows)[number]) =>
                           style={`--share:${row.share.toFixed(3)}`}
                         >
                           <span class="code">{shortCode(row.room.code)}</span>
-                        </a>
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -223,7 +232,7 @@ const deskTitle = (row: (typeof rows)[number]) =>
             </div>
           </>
         )}
-      </>
+      </form>
     )
   }
 
